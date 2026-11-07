@@ -19,6 +19,8 @@ mod frame;
 mod ime;
 mod input;
 mod keys;
+#[cfg(test)]
+mod modifier_stamp_tests;
 mod playback;
 
 #[cfg(test)]
@@ -53,6 +55,8 @@ impl SlideApp {
             dialog: None,
             file_browser: file_browser::State::default(),
             pending_follow: None,
+            #[cfg(target_os = "android")]
+            android_modifiers: egui::Modifiers::NONE,
             thesaurus_query: String::new(),
             show: None,
             anim_preview: None,

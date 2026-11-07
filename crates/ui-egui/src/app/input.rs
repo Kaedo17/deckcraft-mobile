@@ -202,6 +202,10 @@ impl SlideApp {
     /// delivered exactly once in the next real UI pass. `ViewportInfo::visible()` is not a phase
     /// signal: a hidden root still gets a full pass for a screenshot or `RequestPaintWhileHidden`.
     pub fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // Android: winit's backend never emits `ModifiersChanged`, so shortcuts and the
+        // wheel/click modifiers egui-winit fills would all see an empty state.
+        #[cfg(target_os = "android")]
+        stamp_android_modifiers(&mut raw.events, &mut self.android_modifiers);
         #[cfg(not(target_arch = "wasm32"))]
         for f in std::mem::take(&mut raw.dropped_files) {
             let name = f.path().file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "dropped file".into());
@@ -267,4 +271,44 @@ impl SlideApp {
         self.synthetic_pending = true;
         self.synthetic_focus = focus;
     }
+}
+
+/// Called only on Android, from [`SlideApp::raw_input_hook`]; everywhere else winit reports the
+/// real modifiers, which this would only duplicate.
+///
+/// Android: winit's backend never emits `ModifiersChanged` (it ignores the meta state Android
+/// carries on every `KeyEvent`), so egui-winit's own modifiers state — what shortcuts and the
+/// wheel and click events read — is always empty. Track the modifier key events as they arrive,
+/// fill every other event's `modifiers` with what was held when it fired, and end the frame with
+/// a `ModifiersChanged` carrying the end state. Mirrors FilmCraft's `stamp_android_modifiers`
+/// (same port series), as WordCraft's does.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn stamp_android_modifiers(events: &mut Vec<egui::Event>, held: &mut egui::Modifiers) {
+    for event in events.iter_mut() {
+        match event {
+            // A lost focus clears the tracked state, so a modifier held while the app is
+            // backgrounded cannot stick.
+            egui::Event::WindowFocused(false) => *held = egui::Modifiers::NONE,
+            egui::Event::Key { key: egui::Key::ControlLeft | egui::Key::ControlRight, pressed, .. } => {
+                held.ctrl = *pressed;
+                // As egui-winit itself does on every platform but macOS: the shortcut is Ctrl,
+                // and COMMAND chords need `command` set.
+                held.command = *pressed;
+            }
+            egui::Event::Key { key: egui::Key::ShiftLeft | egui::Key::ShiftRight, pressed, .. } => held.shift = *pressed,
+            egui::Event::Key { key: egui::Key::AltLeft | egui::Key::AltRight, pressed, .. } => held.alt = *pressed,
+            // The wheel and the buttons carry their own modifiers too (Ctrl + wheel zooms the
+            // slide, Ctrl + click adds to the shape selection), and egui-winit fills them from
+            // its own state — always empty here. Stamp them with what was held when they fired.
+            egui::Event::Key { modifiers, .. } => *modifiers = *held,
+            egui::Event::MouseWheel { modifiers, .. } | egui::Event::PointerButton { modifiers, .. } => {
+                *modifiers = *held;
+            }
+            _ => {}
+        }
+    }
+    // `held.command` mirrors ctrl here (COMMAND chords match). Appended last: egui applies
+    // `ModifiersChanged` events in order, so the frame-level modifiers end up as this frame's
+    // end state — not a stale value left in eframe's pending input buffer from an earlier frame.
+    events.push(egui::Event::ModifiersChanged(*held));
 }

@@ -235,6 +235,10 @@ pub struct SlideApp {
     pub(crate) file_browser: file_browser::State,
     /// What the browser's answer runs: the same follow-up the system dialog's answer took.
     pending_follow: Option<Box<dyn FnOnce(&mut SlideApp, std::path::PathBuf) + Send>>,
+    /// Modifier keys as this device's key events report them (Android only: winit's backend
+    /// reports no modifier state there — see `app::input::stamp_android_modifiers`).
+    #[cfg(target_os = "android")]
+    android_modifiers: egui::Modifiers,
     /// The word looked up in the Thesaurus pane.
     pub thesaurus_query: String,
     pub show: Option<show::Show>,
