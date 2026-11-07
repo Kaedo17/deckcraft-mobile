@@ -63,6 +63,8 @@ pub const TABLE: &[(&str, Class)] = &[
     ("testkit", Class::Testkit),
     // L7 apps and tooling
     ("deckcraft", Class::Exempt),
+    // The Android NativeActivity entry (a cdylib over the app library): exempt like the apps.
+    ("android", Class::Exempt),
     ("cli", Class::Exempt),
     ("web", Class::Exempt),
     ("xtask", Class::Exempt),
@@ -325,7 +327,7 @@ mod tests {
 
     #[test]
     fn apps_and_xtask_exempt() {
-        for app in ["deckcraft", "deckcraft-cli", "deckcraft-web", "xtask"] {
+        for app in ["deckcraft", "deckcraft-android", "deckcraft-cli", "deckcraft-web", "xtask"] {
             assert!(check(&[c(app, &[("egui", Normal, false), ("deckcraft-ui-egui", Normal, true)])]).is_empty());
         }
     }

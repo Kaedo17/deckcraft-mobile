@@ -1050,6 +1050,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "deckcraft-android"
+version = "0.15.0"
+dependencies = [
+ "android-activity",
+ "deckcraft",
+ "log",
+]
+
+[[package]]
 name = "deckcraft-anim"
 version = "0.15.0"
 dependencies = [

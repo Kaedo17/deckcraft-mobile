@@ -34,6 +34,11 @@ mod graphics;
 mod logging;
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
 mod pasteboard;
+// Android's app-private storage (see the module doc). Compiled everywhere so its folder
+// resolution is host-testable; only an Android launch records a base, so the desktop build
+// never calls these helpers.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod android_storage;
 
 use deckcraft_engine::Session;
 use deckcraft_ui_egui::{Services, SlideApp};
@@ -69,23 +74,32 @@ impl eframe::App for App {
         // nothing after it is needed: the preferences are saved and the log file is unbuffered.
         // `on_exit` only runs once the app exists, never on a failed start. Same as GridCraft #117.
         #[cfg(target_os = "macos")]
-        self.0.cleanup_print_previews();
+        self.inner.cleanup_print_previews();
         #[cfg(target_os = "macos")]
         std::process::exit(0);
     }
 }
 
-/// The per-user settings directory: `ui.json`, `prefs.json` and `logs/` live here.
+/// The per-user settings directory: `ui.json`, `prefs.json` and `logs/` live here. Android has no
+/// per-user environment (neither `HOME` nor `XDG_CONFIG_HOME` is set), so it answers with the
+/// app-private storage resolved at launch (see [`android_storage`]).
 fn config_dir() -> Option<std::path::PathBuf> {
-    if cfg!(target_os = "macos") {
-        std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Library/Application Support/DeckCraft"))
-    } else if cfg!(windows) {
-        std::env::var_os("APPDATA").map(|a| std::path::PathBuf::from(a).join("DeckCraft"))
-    } else {
-        std::env::var_os("XDG_CONFIG_HOME")
-            .map(std::path::PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
-            .map(|c| c.join("deckcraft"))
+    #[cfg(target_os = "android")]
+    {
+        android_storage::config()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        if cfg!(target_os = "macos") {
+            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Library/Application Support/DeckCraft"))
+        } else if cfg!(windows) {
+            std::env::var_os("APPDATA").map(|a| std::path::PathBuf::from(a).join("DeckCraft"))
+        } else {
+            std::env::var_os("XDG_CONFIG_HOME")
+                .map(std::path::PathBuf::from)
+                .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
+                .map(|c| c.join("deckcraft"))
+        }
     }
 }
 
@@ -247,6 +261,15 @@ fn run_inner(#[cfg(target_os = "android")] android_app: Option<android_activity:
     // First, so every start-up record (and the engine's panic hook, installed with the first
     // Session) is captured; see `logging`.
     let logger = logging::install();
+    // Android: resolve the app-private storage once, before anything reads the settings folder —
+    // preferences, the log file and the recovery copies all hang off it (see `android_storage`).
+    #[cfg(target_os = "android")]
+    if let Some(app) = &android_app {
+        match app.internal_data_path() {
+            Some(base) => android_storage::set(base),
+            None => log::warn!("no app-private storage: the activity has no internal data path"),
+        }
+    }
     // The update helper is this program restarted with `--finish-update`; Android has no command
     // line that could carry one.
     #[cfg(not(target_os = "android"))]
@@ -353,9 +376,18 @@ fn run_inner(#[cfg(target_os = "android")] android_app: Option<android_activity:
             }
             load_prefs(&mut app);
             app.enable_update_checks();
-            // AutoRecover: reopen what a previous run left unsaved, then keep it current.
+            // AutoRecover: reopen what a previous run left unsaved, then keep it current. Android's
+            // copies live in the app-private storage; `recovery::default_dir()` keys off HOME/XDG,
+            // which Android does not have.
             if std::env::var_os("DECKCRAFT_NO_RECOVERY").is_none() {
-                app.session.recovery_dir = deckcraft_engine::recovery::default_dir();
+                #[cfg(target_os = "android")]
+                {
+                    app.session.recovery_dir = android_storage::recovery();
+                }
+                #[cfg(not(target_os = "android"))]
+                {
+                    app.session.recovery_dir = deckcraft_engine::recovery::default_dir();
+                }
                 if let Ok(v) = app.session.execute("file.recovery.open", &serde_json::json!({}))
                     && let Some(n) = v.get("opened").and_then(|o| o.as_array()).map(Vec::len).filter(|n| *n > 0)
                 {
@@ -415,6 +447,20 @@ mod tests {
         assert!(out.status.success(), "{stdout}");
         assert!(stdout.contains("calling on_exit"), "the child didn't run the test: {stdout}");
         assert_eq!(stdout.contains("on_exit returned"), !cfg!(target_os = "macos"), "{stdout}");
+    }
+
+    /// Android resolves the app-private storage once, before anything reads it; folders hang off
+    /// the recorded base and are created, so `settings::load` and the log file find them. An
+    /// unresolved launch yields `None` — callers degrade like desktop without a settings folder.
+    #[test]
+    fn the_app_private_storage_resolves_folders() {
+        let base = std::env::temp_dir().join(format!("deckcraft-storage-test-{}", std::process::id()));
+        android_storage::set(base.clone());
+        let config = android_storage::config().expect("the test recorded a base");
+        assert!(config.starts_with(&base) && config.ends_with("config"), "config must hang off the base: {config:?}");
+        assert!(config.is_dir(), "the config folder must exist for settings::load to work");
+        assert!(android_storage::documents().expect("documents folder").is_dir());
+        assert!(android_storage::recovery().expect("recovery folder").is_dir());
     }
 
     /// The egui 0.37 migration (#1350) left `clipboard` out of eframe's features. egui then
