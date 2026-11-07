@@ -1055,6 +1055,7 @@ version = "0.15.0"
 dependencies = [
  "android-activity",
  "deckcraft",
+ "jni 0.21.1",
  "log",
 ]
 
@@ -6337,6 +6338,7 @@ checksum = "9440ea3e5aeabb0ac63af70daf835274065238cdd0cec83418f417eae38bacee"
 name = "xtask"
 version = "0.15.0"
 dependencies = [
+ "image",
  "serde_json",
 ]
 

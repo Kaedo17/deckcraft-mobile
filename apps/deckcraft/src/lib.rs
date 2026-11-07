@@ -243,10 +243,21 @@ fn app_icon() -> Option<egui::IconData> {
 /// Open the window and run the app until its window closes. The desktop binary (`main.rs`) calls
 /// this; Android's NativeActivity entry point (a later step, `apps/deckcraft-android`) calls
 /// [`run_android`] from `android_main`.
+/// Android's "All files access" answer and ask, as plain closures handed to the app by the entry
+/// crate's JNI (`apps/deckcraft-android/src/android_access.rs`): `granted` answers whether the
+/// grant is held *right now* (re-asked on every browser tap), and `ask` opens the system page
+/// where the user toggles it — Android never grants it silently. `None` when the entry crate
+/// could not reach the JVM: the browser then keeps its app-private root.
+#[cfg(target_os = "android")]
+pub struct SharedStorageAccess {
+    pub granted: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
+    pub ask: std::sync::Arc<dyn Fn() + Send + Sync>,
+}
+
 pub fn run() -> eframe::Result {
     #[cfg(target_os = "android")]
     {
-        run_inner(None)
+        run_inner(None, None)
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -257,13 +268,16 @@ pub fn run() -> eframe::Result {
 /// Android's entry: like [`run`], but with the activity's handle, which eframe's Android event
 /// loop cannot be created without — leaving it out ends the activity as soon as it starts.
 #[cfg(target_os = "android")]
-pub fn run_android(android_app: android_activity::AndroidApp) -> eframe::Result {
-    run_inner(Some(android_app))
+pub fn run_android(android_app: android_activity::AndroidApp, access: Option<SharedStorageAccess>) -> eframe::Result {
+    run_inner(Some(android_app), access)
 }
 
 /// Install logging, read the command line (desktop) or launch the default way (Android), then
 /// launch the native app, propagating an eframe startup failure.
-fn run_inner(#[cfg(target_os = "android")] android_app: Option<android_activity::AndroidApp>) -> eframe::Result {
+fn run_inner(
+    #[cfg(target_os = "android")] android_app: Option<android_activity::AndroidApp>,
+    #[cfg(target_os = "android")] access: Option<SharedStorageAccess>,
+) -> eframe::Result {
     // First, so every start-up record (and the engine's panic hook, installed with the first
     // Session) is captured; see `logging`.
     let logger = logging::install();
@@ -380,7 +394,23 @@ fn run_inner(#[cfg(target_os = "android")] android_app: Option<android_activity:
         options,
         Box::new(move |cc| {
             deckcraft_ui_egui::install_ime_pass_hooks(&cc.egui_ctx);
-            let mut app = SlideApp::new(Session::new(), services(native_wayland));
+            // Only the Android path adds the shared-storage hooks; on desktop this stays immutable.
+            #[cfg_attr(not(target_os = "android"), allow(unused_mut))]
+            let mut svc = services(native_wayland);
+            #[cfg(target_os = "android")]
+            {
+                // Shared storage is the browser's second root (spec D): the switcher between the
+                // app-private tree and `/storage/emulated/0`, entered only while the "All files
+                // access" grant holds. The closures re-check it at every tap and open the system
+                // page that grants it (the entry crate's JNI); without them the browser stays in
+                // app storage. Desktop and web have their own pickers, so nothing is set there.
+                svc.shared_storage_root = Some(std::path::PathBuf::from(android_storage::SHARED_ROOT));
+                if let Some(access) = access {
+                    svc.shared_storage_granted = Some(std::sync::Arc::new(move || (access.granted)()));
+                    svc.shared_storage_grant = Some(std::sync::Arc::new(move || (access.ask)()));
+                }
+            }
+            let mut app = SlideApp::new(Session::new(), svc);
             // Presenter View asks winit how many displays there are when a show starts.
             #[cfg(all(unix, not(target_os = "macos"), not(target_os = "android")))]
             if let Some(window) = cc.winit_window().cloned() {

@@ -7,6 +7,7 @@ mod assets;
 mod bench;
 mod ico;
 mod layers;
+mod mipmaps;
 mod parity;
 mod pdf_deps;
 mod stats;
@@ -33,6 +34,8 @@ commands:
   parity          recompute the PowerPoint feature-parity summary in docs/parity-checklist.md
   ico <out.ico> <in.png>...
                   pack square PNGs (<= 256 px) into a Windows .ico (see packaging/icons.sh)
+  mipmaps         render Android's launcher icons (five densities) from the app icon into
+                  apps/deckcraft-android/res/mipmap-*/ic_launcher.png
 ";
 
 fn main() -> ExitCode {
@@ -49,6 +52,7 @@ fn main() -> ExitCode {
         Some("parity") => parity::run(&root()),
         Some("bench") => bench::run(&root(), &rest),
         Some("ico") => ico::run(&rest),
+        Some("mipmaps") => mipmaps::run(&root()),
         Some("version") => version::run(&root(), &rest),
         Some("-h" | "--help" | "help") | None => {
             print!("{USAGE}");

@@ -109,17 +109,21 @@ pub(crate) fn up_from(root: &Path, dir: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Whether `p` is a folder the browser may open: under the root its navigation is clamped to.
-fn inside_root(p: &Path, root: &Path) -> bool {
-    p.starts_with(root)
+/// Whether `p` is a folder the browser may open: under the app-private root, or under the shared
+/// root when the host offers one.
+fn inside_root(p: &Path, app_root: &Path, shared_root: Option<&Path>) -> bool {
+    p.starts_with(app_root) || shared_root.is_some_and(|s| p.starts_with(s))
 }
 
-/// The root an Android browser's navigation is clamped to (the host's app-private storage). The
-/// desktop has none — `FileBrowser::roots` is `None` and every folder the user types is fair
-/// game.
+/// The roots an Android browser walks (the host's app-private storage, and shared storage when
+/// the host offers it): navigation is clamped inside them. The desktop has none —
+/// `FileBrowser::roots` is `None` and every folder the user types is fair game.
 pub(crate) struct Roots {
     /// The app-private root (`Services::app_files_dir`).
     pub(crate) app: PathBuf,
+    /// Shared internal storage (`Services::shared_storage_root`), entered only while Android's
+    /// "All files access" grant holds; `None` when the host offers no shared tree.
+    pub(crate) shared: Option<PathBuf>,
 }
 
 /// The app storage the browser starts in: its `Documents` folder when it exists, else the root.
@@ -160,6 +164,9 @@ pub(crate) enum Note {
     NotFound(String),
     /// The file exists: the next OK replaces it.
     Replace(PathBuf),
+    /// Shared storage needs Android's "All files access" before it can be browsed; the ask
+    /// opened the system page where the user toggles it.
+    Grant,
 }
 
 /// What a pick asks for, when the built-in browser serves it (a host with no system file dialog):
@@ -262,26 +269,39 @@ impl FileBrowser {
         self.note = Note::None;
     }
 
-    /// The folder actually shown for `dir`: itself, or — when the browser is clamped and `dir` is
-    /// outside its root (a typed path, a jump) — the root's top.
+    /// The folder actually shown for `dir`: itself, or — when the browser is clamped and `dir`
+    /// is outside its roots (a typed path, a jump) — the top of the root the browser is in.
     fn clamped(&self, dir: PathBuf) -> PathBuf {
-        match &self.roots {
-            Some(roots) if self.inside_root(&dir) => dir,
-            Some(roots) => roots.app.clone(),
-            None => dir,
+        let Some(roots) = &self.roots else { return dir };
+        if self.inside_root(&dir) {
+            return dir;
+        }
+        match roots.shared.as_deref() {
+            Some(shared) if self.dir.starts_with(shared) => shared.to_path_buf(),
+            _ => roots.app.clone(),
         }
     }
 
-    /// Whether `p` is a folder this browser may open (the root its navigation is clamped to).
+    /// Whether `p` is a folder this browser may open (under either of its roots).
     pub(crate) fn inside_root(&self, p: &Path) -> bool {
-        self.roots.as_ref().is_some_and(|r| inside_root(p, &r.app))
+        self.roots.as_ref().is_some_and(|r| inside_root(p, &r.app, r.shared.as_deref()))
     }
 
-    /// Where "Up one level" goes: the parent, clamped to the shown root on Android; `None` when
-    /// there is nowhere up to go (the root's top, or no parent on the desktop).
+    /// The root the browser is currently in: shared storage while it browses there, else the
+    /// app-private root; `None` on a host with no roots (the desktop).
+    fn current_root(&self) -> Option<&Path> {
+        let roots = self.roots.as_ref()?;
+        match roots.shared.as_deref() {
+            Some(shared) if self.dir.starts_with(shared) => Some(shared),
+            _ => Some(roots.app.as_path()),
+        }
+    }
+
+    /// Where "Up one level" goes: the parent, clamped to the root the browser is in on Android;
+    /// `None` when there is nowhere up to go (the root's top, or no parent on the desktop).
     pub(crate) fn up_target(&self) -> Option<PathBuf> {
-        match &self.roots {
-            Some(roots) => up_from(&roots.app, &self.dir),
+        match self.current_root() {
+            Some(root) => up_from(root, &self.dir),
             None => self.dir.parent().map(Path::to_path_buf),
         }
     }
@@ -292,10 +312,29 @@ impl FileBrowser {
         }
     }
 
-    /// Where the home-folder button goes: the app's Documents on Android, the user's home on the
-    /// desktop (where no browser opens — for `resolve`'s `~`).
+    /// Where the app-files switcher goes: the app's Documents when it exists, else the app root.
+    fn app_start_target(&self) -> Option<PathBuf> {
+        self.roots.as_ref().map(app_start)
+    }
+
+    /// Where the home-folder button goes: the app's Documents on Android even while shared
+    /// storage is being browsed, the user's home on the desktop (where no browser opens — for
+    /// `resolve`'s `~`).
     fn home_target(&self) -> Option<PathBuf> {
-        self.roots.as_ref().map(app_start).or_else(home)
+        self.app_start_target().or_else(home)
+    }
+
+    /// The "Shared storage" tap: enter the shared root's top while the host says the grant holds;
+    /// otherwise stay where the browser is, with a note explaining the ask — Android never grants
+    /// "All files access" silently. No shared root at all: nothing to enter, grant or not.
+    pub(crate) fn open_shared(&mut self, granted: bool) -> bool {
+        let Some(shared) = self.roots.as_ref().and_then(|r| r.shared.clone()) else { return false };
+        if !granted {
+            self.note = Note::Grant;
+            return false;
+        }
+        self.navigate(shared);
+        true
     }
 
     /// OK: a highlighted folder is opened; otherwise the typed name is the pick. Save adds the
@@ -307,9 +346,9 @@ impl FileBrowser {
             return Step::Stay;
         }
         let Some(mut path) = resolve(&self.dir, &self.name) else { return Step::Stay };
-        // Android: a typed pick outside the browser's root (…/, an absolute path) is not one this
-        // dialog may take.
-        if self.roots.as_ref().is_some_and(|r| !inside_root(&path, &r.app)) {
+        // Android: a typed pick outside both roots (…/, an absolute path) is not one this dialog
+        // may take.
+        if self.roots.as_ref().is_some_and(|r| !inside_root(&path, &r.app, r.shared.as_deref())) {
             self.note = Note::NotFound(self.name.trim().to_string());
             return Step::Stay;
         }
@@ -383,7 +422,7 @@ pub(crate) fn show(app: &mut SlideApp, ctx: &egui::Context) {
         .open(&mut open)
         .show(ctx, |ui| {
             ui.set_width(620.0);
-            done = body(ui, &mut b, &t);
+            done = body(ui, &mut b, &t, &app.services);
         });
     if !open {
         done = Some(None);
@@ -395,7 +434,7 @@ pub(crate) fn show(app: &mut SlideApp, ctx: &egui::Context) {
 }
 
 /// The browser's contents; `Some` once it closes (`Some(None)`: cancelled).
-fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>> {
+fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens, services: &crate::Services) -> Option<Option<PathBuf>> {
     let mut location_done = false;
     ui.horizontal(|ui| {
         if widgets::small_button(ui, icons::Icon::ChevronUp, "Up one level", true, false).clicked() {
@@ -416,6 +455,30 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
         }
     });
     ui.add_space(4.0);
+    // Root switcher, drawn only where the host offers shared storage (Android): the browser walks
+    // the app-private tree or shared storage, one root at a time. "Shared storage" without the
+    // grant opens Android's settings page instead of navigating — the grant can never be taken
+    // silently, and the tap re-checks it, so coming back from the page enters it at once.
+    if let Some(shared) = b.roots.as_ref().and_then(|r| r.shared.clone()) {
+        let in_shared = b.dir.starts_with(&shared);
+        ui.horizontal(|ui| {
+            if ui.selectable_label(!in_shared, "App files").clicked()
+                && in_shared
+                && let Some(start) = b.app_start_target()
+            {
+                b.navigate(start);
+            }
+            let granted = services.shared_storage_granted.as_ref().is_some_and(|f| f());
+            if ui.selectable_label(in_shared, "Shared storage").clicked()
+                && !in_shared
+                && !b.open_shared(granted)
+                && let Some(ask) = &services.shared_storage_grant
+            {
+                ask();
+            }
+        });
+        ui.add_space(4.0);
+    }
     let mut pick = false;
     let mut go: Option<PathBuf> = None;
     let mut clicked: Option<Entry> = None;
@@ -472,6 +535,10 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
             let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             Some((format!("{name} already exists. Choose Save again to replace it."), t.accent))
         }
+        (_, Note::Grant) => Some((
+            "To browse shared storage, allow DeckCraft all-files access in Android's settings, then choose Shared storage again.".to_string(),
+            t.accent,
+        )),
         (Err(e), _) => Some((format!("This folder can't be read: {e}"), t.accent)),
         (Ok(l), _) if l.truncated => Some((format!("Showing the first {} items.", l.entries.len()), t.text_dim)),
         _ => None,

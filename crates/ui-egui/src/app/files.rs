@@ -774,7 +774,7 @@ impl SlideApp {
     where
         F: FnOnce(&mut SlideApp, std::path::PathBuf) + Send + 'static,
     {
-        let roots = self.services.app_files_dir.clone().map(|app| file_browser::Roots { app });
+        let roots = self.services.app_files_dir.clone().map(|app| file_browser::Roots { app, shared: self.services.shared_storage_root.clone() });
         let start = self.browser_start(&roots);
         let (rx, browser) = file_browser::open_browser(request, start, roots);
         self.file_browser.rx = Some(rx);

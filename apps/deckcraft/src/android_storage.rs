@@ -50,6 +50,10 @@ pub fn documents() -> Option<PathBuf> {
     dir("Documents")
 }
 
+/// Shared internal storage (`/storage/emulated/0`): the browser's second root once Android's
+/// "All files access" grant holds (spec D). Nothing reads it until then.
+pub const SHARED_ROOT: &str = "/storage/emulated/0";
+
 /// AutoRecover copies, beside the desktop's `<settings dir>/Recovery`.
 pub fn recovery() -> Option<PathBuf> {
     dir("recovery")

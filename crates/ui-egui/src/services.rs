@@ -52,6 +52,19 @@ pub struct Services {
     /// system dialog would: the picked path goes to the same follow-up. `None` on hosts with a
     /// system dialog (desktop) and on the web, which keeps its own flow.
     pub app_files_dir: Option<std::path::PathBuf>,
+    /// Android: shared internal storage (`/storage/emulated/0`) offered as the browser's second
+    /// root, whether or not the grant holds — the switcher enters it only while
+    /// `shared_storage_granted` says so, and otherwise `shared_storage_grant` opens Android's
+    /// settings page where the user toggles it. `None` on hosts with no shared storage (desktop,
+    /// web), which draw no switcher.
+    pub shared_storage_root: Option<std::path::PathBuf>,
+    /// Whether Android's "All files access" grant (`MANAGE_EXTERNAL_STORAGE`) is held right now,
+    /// asked of the JVM at every tap so a grant made in the settings page is seen the moment the
+    /// user comes back.
+    pub shared_storage_granted: Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// Open Android's "All files access" settings page (Android 11+), or the runtime permission
+    /// dialog on Android 9. Without the hook, nothing can be asked.
+    pub shared_storage_grant: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     pub read: Option<ReadFn>,
     pub write: Option<WriteFn>,
     /// Asynchronous open dialog (web). The callback receives the purpose and the request id

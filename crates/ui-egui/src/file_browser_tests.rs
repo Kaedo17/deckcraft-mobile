@@ -87,17 +87,25 @@ fn up_from_stops_at_the_root() {
     assert_eq!(up_from(root, Path::new("/storage/emulated/0")), None);
 }
 
-/// A folder this browser may open is under the root; a path that merely starts with the same
-/// text but is a sibling directory is not inside it.
+/// A folder this browser may open is under its app root, or — when the host offers shared
+/// storage — under that root too; a path that merely starts with the same text but is a sibling
+/// directory is not inside either.
 #[test]
 fn inside_root_accepts_only_the_root() {
     let root = Path::new("/data/user/0/ai.storyteller.deckcraft/files/DeckCraft");
     let (send, _rx) = channel();
-    let b = FileBrowser::new(open_request(), root.join("Documents"), Some(Roots { app: root.to_path_buf() }), send);
+    let b = FileBrowser::new(open_request(), root.join("Documents"), Some(Roots { app: root.to_path_buf(), shared: None }), send);
     assert!(b.inside_root(&root.join("Documents")), "a folder under the root");
     assert!(b.inside_root(root), "the root itself is a folder the browser may show");
     assert!(!b.inside_root(Path::new("/data/user/0/ai.storyteller.deckcraft/other")));
     assert!(!b.inside_root(Path::new("/data/user/0/ai.storyteller.deckcraft/files/DeckCraft-x")), "a sibling that shares a prefix");
+    assert!(!b.inside_root(Path::new("/etc")));
+    let shared = Path::new("/storage/emulated/0");
+    let (send, _rx) = channel();
+    let b =
+        FileBrowser::new(open_request(), shared.join("Download"), Some(Roots { app: root.to_path_buf(), shared: Some(shared.to_path_buf()) }), send);
+    assert!(b.inside_root(&shared.join("Download")), "a folder under shared storage");
+    assert!(!b.inside_root(Path::new("/storage/emulated/0-x")), "a sibling of shared storage shares a prefix but is not inside it");
     assert!(!b.inside_root(Path::new("/etc")));
 }
 
@@ -164,21 +172,104 @@ fn cancelling_the_browser_answers_none() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
-/// Navigation is clamped inside the host's root: a typed pick outside is refused as not
-/// found, a folder jump outside lands on the root's top, and the root's top has no Up.
+/// Navigation is clamped inside the host's roots: a typed pick outside both is refused as not
+/// found, a folder jump outside lands on the top of the root the browser is in, and each root's
+/// top has no Up. A pick under shared storage (once entered) is taken.
 #[test]
 fn a_pick_outside_the_root_is_refused_and_clamped() {
     let base = scratch("clamp");
     std::fs::create_dir_all(base.join("Documents")).unwrap();
+    let shared = scratch("clamp-shared");
+    std::fs::create_dir_all(shared.join("Download")).unwrap();
+    std::fs::write(shared.join("out.deckcraft"), b"x").unwrap();
     let (send, _rx) = channel();
-    let mut b = FileBrowser::new(open_request(), base.join("Documents"), Some(Roots { app: base.clone() }), send);
+    let mut b = FileBrowser::new(open_request(), base.join("Documents"), Some(Roots { app: base.clone(), shared: Some(shared.clone()) }), send);
     b.name = "/etc/passwd".into();
     assert_eq!(b.accept(), Step::Stay);
-    assert_eq!(b.note, Note::NotFound("/etc/passwd".into()), "outside the root: not found");
+    assert_eq!(b.note, Note::NotFound("/etc/passwd".into()), "outside both roots: not found");
     b.navigate(base.parent().unwrap().to_path_buf());
-    assert_eq!(b.dir, base, "a folder outside the root lands on the root's top");
-    assert_eq!(b.up_target(), None, "the root's top has no Up");
+    assert_eq!(b.dir, base, "a folder outside the roots lands on the app root's top");
+    assert_eq!(b.up_target(), None, "the app root's top has no Up");
+    // From shared storage, the same jump lands on shared storage's top, not the app tree's.
+    assert!(b.open_shared(true), "the browser may enter shared storage while the grant holds");
+    assert_eq!(b.dir, shared.clone());
+    b.navigate(shared.join("Download"));
+    assert_eq!(b.up_target(), Some(shared.clone()), "shared storage's Download climbs to its own root");
+    b.navigate(Path::new("/etc").to_path_buf());
+    assert_eq!(b.dir, shared.clone(), "the fallback is the root the browser is in");
+    assert_eq!(b.up_target(), None, "shared storage's top has no Up");
+    b.name = "out.deckcraft".into();
+    assert_eq!(b.accept(), Step::Pick(shared.join("out.deckcraft")), "a pick under shared storage is taken");
     let _ = std::fs::remove_dir_all(&base);
+    let _ = std::fs::remove_dir_all(&shared);
+}
+
+/// "Up one level" stays inside the root the browser is in: under shared storage it climbs to
+/// `/storage/emulated/0` and stops there instead of the app tree's root.
+#[test]
+fn up_stops_at_the_root_the_browser_is_in() {
+    let app = Path::new("/data/user/0/ai.storyteller.deckcraft/files/DeckCraft");
+    let shared = Path::new("/storage/emulated/0");
+    let (send, _rx) = channel();
+    let mut b =
+        FileBrowser::new(open_request(), shared.join("Download"), Some(Roots { app: app.to_path_buf(), shared: Some(shared.to_path_buf()) }), send);
+    assert_eq!(b.up_target(), Some(shared.to_path_buf()), "shared storage's Download climbs to its own root");
+    b.navigate(shared.to_path_buf());
+    assert_eq!(b.up_target(), None, "shared storage's top has no Up");
+    b.navigate(shared.join("Documents"));
+    assert_eq!(b.up_target(), Some(shared.to_path_buf()));
+}
+
+/// The switcher's "Shared storage" tap: it navigates only while the host says the grant is
+/// held, and otherwise stays put with a note that explains the ask.
+#[test]
+fn the_switcher_enters_shared_storage_only_with_the_grant() {
+    let base = scratch("grant");
+    let shared = scratch("grant-shared");
+    std::fs::create_dir_all(base.join("Documents")).unwrap();
+    let (send, _rx) = channel();
+    let mut b = FileBrowser::new(open_request(), base.join("Documents"), Some(Roots { app: base.clone(), shared: Some(shared.clone()) }), send);
+    assert!(!b.open_shared(false), "without the grant the switcher does not navigate");
+    assert_eq!(b.dir, base.join("Documents"), "the browser stays where it was");
+    assert_eq!(b.note, Note::Grant, "the ask explains itself");
+    assert!(b.open_shared(true), "with the grant the switcher enters shared storage");
+    assert_eq!(b.dir, shared.clone());
+    assert_eq!(b.note, Note::None);
+    let _ = std::fs::remove_dir_all(&base);
+    let _ = std::fs::remove_dir_all(&shared);
+}
+
+/// No shared root (a host that offers only the app's storage): the browser has no second root
+/// to switch to, and the switcher's tap does nothing.
+#[test]
+fn no_shared_root_offers_no_second_root() {
+    let base = scratch("no-shared");
+    let (send, _rx) = channel();
+    let mut b = FileBrowser::new(open_request(), base.clone(), Some(Roots { app: base.clone(), shared: None }), send);
+    assert!(!b.open_shared(true), "no shared root: nothing to enter, grant or not");
+    assert_eq!(b.dir, base.clone(), "the browser stays in the app's storage");
+    assert_eq!(b.note, Note::None);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A host that offers shared storage hands it to the browser as its second root; the app-private
+/// root and start stay as they were.
+#[test]
+fn a_shared_root_offered_by_the_host_reaches_the_browser() {
+    let base = scratch("shared-route");
+    let shared = scratch("shared-route-shared");
+    std::fs::create_dir_all(base.join("Documents")).unwrap();
+    let mut app = SlideApp::new(
+        Session::new(),
+        Services { app_files_dir: Some(base.clone()), shared_storage_root: Some(shared.clone()), ..Default::default() },
+    );
+    app.session.execute("file.new", &json!({})).unwrap();
+    app.save_as_dialog("deckcraft");
+    let b = app.file_browser.open.as_ref().expect("the built-in browser serves the request");
+    assert_eq!(b.roots.as_ref().map(|r| r.shared.clone()), Some(Some(shared.clone())), "shared storage is the browser's second root");
+    assert_eq!(b.dir, base.join("Documents"), "and it still starts in the app's Documents");
+    let _ = std::fs::remove_dir_all(&base);
+    let _ = std::fs::remove_dir_all(&shared);
 }
 
 /// A highlighted entry takes its name into the file name field; folders stay highlighted only.
