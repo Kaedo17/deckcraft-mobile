@@ -80,6 +80,15 @@ fn title(id: &str) -> &'static str {
 /// Render the active dialog, clearing it when dismissed and preserving or restoring application
 /// state as its close path requires.
 pub fn show(app: &mut SlideApp, ctx: &egui::Context) {
+    // The built-in browser (the file dialog on a host with no system picker) sits above the app
+    // dialogs: its Escape closes it first, whatever app dialog is open below; then it draws.
+    if app.file_browser.open.is_some() {
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            crate::file_browser::cancel(app);
+            return;
+        }
+        crate::file_browser::show(app, ctx);
+    }
     let Some(mut d) = app.dialog.take() else { return };
     let mut open = true;
     let mut close = false;

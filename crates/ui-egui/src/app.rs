@@ -7,7 +7,8 @@ use super::updates_ui;
 use super::{
     AnimPreview, ControlRequest, FileTarget, HashMap, ImeCancelled, ImeComposition, ImeResetPhase, ImeTerminalPending, InputTarget, Mods,
     PendingFile, Perf, Receiver, Session, SlideApp, Target, UI_COMMANDS, UiRequest, Value, backstage, canvas, capture, dialogs, doc_window,
-    eyedropper, json, media, menus, notes, panes, preview, qat, ribbon, selpane, show, sorter, status, textures, theme, thumbs, toast, uifonts,
+    eyedropper, file_browser, json, media, menus, notes, panes, preview, qat, ribbon, selpane, show, sorter, status, textures, theme, thumbs, toast,
+    uifonts,
 };
 
 mod clipboard;
@@ -50,6 +51,8 @@ impl SlideApp {
             control_rx: None,
             squiggles: Default::default(),
             dialog: None,
+            file_browser: file_browser::State::default(),
+            pending_follow: None,
             thesaurus_query: String::new(),
             show: None,
             anim_preview: None,
@@ -226,6 +229,9 @@ impl SlideApp {
             // Inbox results are host file bytes and do not need fonts or a painted frame. A
             // window that starts hidden must still apply a file picked before its first UI pass.
             self.drain_inbox();
+            // A built-in browser's answer is a picked path, same as an inbox result: applied on
+            // the next logic pass, not while the batch of a hidden frame is being discarded.
+            self.poll_file_browser();
         }
         self.drain_screenshots();
         // `raw_input_hook` ran before this logic pass. This is normally a no-op now that

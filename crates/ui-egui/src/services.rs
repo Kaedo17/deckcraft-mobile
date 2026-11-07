@@ -46,6 +46,12 @@ pub struct Services {
     pub pick_open: Option<PickFn>,
     /// Save dialog with a suggested name → path.
     pub pick_save: Option<PickFn>,
+    /// Android (and any host with no system file dialog): the app-private directory the built-in
+    /// [`file_browser`](crate::file_browser) may reach. When set, every file request is served in
+    /// the browser over this root instead of answering none (cancelled), answering exactly as the
+    /// system dialog would: the picked path goes to the same follow-up. `None` on hosts with a
+    /// system dialog (desktop) and on the web, which keeps its own flow.
+    pub app_files_dir: Option<std::path::PathBuf>,
     pub read: Option<ReadFn>,
     pub write: Option<WriteFn>,
     /// Asynchronous open dialog (web). The callback receives the purpose and the request id

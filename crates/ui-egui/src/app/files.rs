@@ -1,6 +1,6 @@
 use super::{
     FilePlace, FilePurpose, FileTarget, InboxEvent, LocatedPlace, PendingFile, RECENT_MAX, SlideApp, Target, UiRequest, Value, ViewMode, dialogs,
-    json, media,
+    file_browser, json, media,
 };
 
 #[derive(Default)]
@@ -71,6 +71,35 @@ fn purpose_of(purpose: &str) -> FilePurpose {
         "video" => FilePurpose::Video,
         _ => FilePurpose::Infer,
     }
+}
+
+/// The file types the built-in browser lists for an Open request of `purpose`, mirroring the
+/// desktop dialogs' filters (`apps/deckcraft/src/lib.rs`).
+fn pick_exts(purpose: &str) -> Vec<String> {
+    let exts: &[&str] = match purpose {
+        "picture" => &["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"],
+        "audio" => &["wav", "mp3", "m4a", "m4b", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff", "aifc", "caf", "wma", "weba", "mka"],
+        "video" => &["mp4", "m4v", "mov", "webm", "mkv", "wmv"],
+        "theme" => &["thmx", "pptx", "potx", "ppsx"],
+        _ => &["deckcraft", "pptx", "potx", "ppsx", "txt", "md"],
+    };
+    exts.iter().map(|e| (*e).to_string()).collect()
+}
+
+/// The built-in browser's window title for an Open request of `purpose`, as the desktop dialog's.
+fn pick_title(purpose: &str) -> String {
+    match purpose {
+        "picture" => "Insert picture".to_string(),
+        "audio" => "Insert audio".to_string(),
+        "video" => "Insert video".to_string(),
+        "theme" => "Import theme".to_string(),
+        _ => "Open presentation".to_string(),
+    }
+}
+
+/// The types an Open request for a presentation lists: presentations plus outline files.
+fn presentation_exts() -> Vec<String> {
+    pick_exts("open")
 }
 
 fn is_presentation_name(lower: &str) -> bool {
@@ -218,6 +247,26 @@ impl SlideApp {
                 Err(_) => false,
             };
         }
+        if self.services.app_files_dir.is_some() {
+            // Android (no system dialog): the built-in browser picks the export path; the answer
+            // runs the same export as the system dialog's answer would.
+            let mut params = json!({"format": format, "all": all});
+            if let (Some(o), Some(x)) = (params.as_object_mut(), extra.as_object()) {
+                o.extend(x.clone());
+            }
+            self.open_browser_pick(
+                file_browser::BrowserRequest::Save { title: "Export".into(), name: suggested, exts: vec![ext.to_string()] },
+                move |app, path| {
+                    let path = path.to_string_lossy().into_owned();
+                    params["path"] = json!(path.clone());
+                    // `run` reports its own error through the status bar; a success confirms the export.
+                    if app.run("file.export", params).is_ok() {
+                        app.set_status(format!("Exported {path}"));
+                    }
+                },
+            );
+            return false;
+        }
         let Some(doc) = self.session.active().map(|d| d.doc.clone()) else { return false };
         let bytes = match format {
             "png" | "jpeg" => {
@@ -302,6 +351,13 @@ impl SlideApp {
             if let Some(f) = self.services.open_async.as_mut() {
                 f("open", id);
             }
+        } else if self.services.app_files_dir.is_some() {
+            // Android (no system dialog): the built-in browser picks the presentation; the answer
+            // opens it in the background, as the system dialog's answer would.
+            self.open_browser_pick(
+                file_browser::BrowserRequest::Open { title: "Open presentation".into(), exts: presentation_exts() },
+                |app, path| app.open_path_in_background(&path.to_string_lossy()),
+            );
         }
     }
 
@@ -352,6 +408,41 @@ impl SlideApp {
     /// current one (desktop only: the browser picker opens what it picks as a document).
     pub(super) fn pick_and_reuse(&mut self, keep: bool) {
         let Some(pick) = self.services.pick_open.as_mut() else {
+            if self.services.app_files_dir.is_some() {
+                // Android (no system dialog): the built-in browser picks the presentation; the
+                // answer reads it and opens the picker, as the desktop flow does. Where the
+                // picked slides go is the target captured before the browser opened.
+                let target = self.capture_file_target();
+                self.open_browser_pick(
+                    file_browser::BrowserRequest::Open { title: "Reuse Slides".into(), exts: presentation_exts() },
+                    move |app, path| {
+                        let path = path.to_string_lossy().into_owned();
+                        let mut source = json!({});
+                        match app.services.read.as_ref().map(|read| read(&path)) {
+                            Some(Ok(bytes)) => {
+                                let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                                source["name"] = json!(name);
+                                source["data"] = json!(deckcraft_engine::cmd::base64_encode(&bytes));
+                            }
+                            Some(Err(e)) => {
+                                app.set_status(e);
+                                return;
+                            }
+                            None => source["path"] = json!(path.clone()),
+                        }
+                        match app.session.execute("slide.reuseList", &source) {
+                            Ok(list) => {
+                                let mut d = dialogs::Dialog::new("reuseSlides");
+                                d.params = json!({"path": path, "source": source, "keep": keep, "slides": list["slides"]});
+                                app.reuse_target = Some(target);
+                                app.dialog = Some(d);
+                            }
+                            Err(e) => app.set_status(e.to_string()),
+                        }
+                    },
+                );
+                return;
+            }
             self.set_status("Reuse Slides needs the desktop app".to_string());
             return;
         };
@@ -444,6 +535,30 @@ impl SlideApp {
             if let Some(f) = self.services.open_async.as_mut() {
                 f(purpose, id);
             }
+        } else if self.services.app_files_dir.is_some() {
+            // Android (no system dialog): the built-in browser picks the file; the answer runs the
+            // same command with the same name + data (or path) as the system dialog's answer would.
+            let cmd = cmd.to_string();
+            let extra = extra.clone();
+            self.open_browser_pick(file_browser::BrowserRequest::Open { title: pick_title(purpose), exts: pick_exts(purpose) }, move |app, path| {
+                let mut args = if extra.is_object() { extra.clone() } else { json!({}) };
+                let path = path.to_string_lossy().into_owned();
+                let r = match app.services.read.as_ref().map(|read| read(&path)) {
+                    Some(Ok(bytes)) => {
+                        let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        args["name"] = json!(name);
+                        args["data"] = json!(deckcraft_engine::cmd::base64_encode(&bytes));
+                        app.session.execute(&cmd, &args)
+                    }
+                    _ => {
+                        args["path"] = json!(path);
+                        app.session.execute(&cmd, &args)
+                    }
+                };
+                if let Err(e) = r {
+                    app.set_status(e.to_string());
+                }
+            });
         }
     }
 
@@ -471,6 +586,23 @@ impl SlideApp {
                 Ok(bytes) => dl(&suggested, &bytes),
                 Err(e) => self.set_status(e.to_string()),
             }
+        } else if self.services.app_files_dir.is_some() {
+            // Android (no system dialog): the built-in browser picks the save path; the answer
+            // saves into it, as the system dialog's answer would.
+            self.open_browser_pick(
+                file_browser::BrowserRequest::Save { title: "Save As".into(), name: suggested, exts: vec![ext.to_string()] },
+                |app, path| {
+                    let path = path.to_string_lossy().into_owned();
+                    match app.session.execute("file.saveAs", &json!({"path": path})) {
+                        Ok(_) => {
+                            app.set_status(format!("Saved {path}"));
+                            app.ui.recent.retain(|p| *p != path);
+                            app.ui.recent.insert(0, path);
+                        }
+                        Err(e) => app.set_status(e.to_string()),
+                    }
+                },
+            );
         }
     }
 
@@ -633,6 +765,62 @@ impl SlideApp {
         self.next_file_id = self.next_file_id.wrapping_add(1).max(1);
         self.pending_files.push(PendingFile { id, purpose: purpose_of(purpose), target: self.capture_file_target() });
         id
+    }
+
+    /// Serve `request` in the built-in file browser over the host's app-private storage: the
+    /// answer (or nothing, when cancelled) arrives on the next logic pass, which runs `follow`
+    /// exactly as the system dialog's answer would.
+    fn open_browser_pick<F>(&mut self, request: file_browser::BrowserRequest, follow: F)
+    where
+        F: FnOnce(&mut SlideApp, std::path::PathBuf) + Send + 'static,
+    {
+        let roots = self.services.app_files_dir.clone().map(|app| file_browser::Roots { app });
+        let start = self.browser_start(&roots);
+        let (rx, browser) = file_browser::open_browser(request, start, roots);
+        self.file_browser.rx = Some(rx);
+        self.file_browser.open = Some(browser);
+        self.pending_follow = Some(Box::new(follow));
+    }
+
+    /// Where the browser opens: the folder it showed last, else the folder the current
+    /// presentation lives in, else the app's Documents folder — each only while it exists.
+    fn browser_start(&self, roots: &Option<file_browser::Roots>) -> std::path::PathBuf {
+        self.file_browser
+            .last_dir
+            .clone()
+            .filter(|d| d.is_dir())
+            .or_else(|| {
+                self.session
+                    .active()
+                    .and_then(|d| d.path.as_deref())
+                    .map(|p| std::path::Path::new(p).parent())
+                    .and_then(|d| d.map(std::path::Path::to_path_buf))
+                    .filter(|d| d.is_dir())
+            })
+            .or_else(|| roots.as_ref().map(file_browser::app_start).filter(|d| d.is_dir()))
+            .unwrap_or_else(|| std::path::PathBuf::from("/"))
+    }
+
+    /// Apply a built-in browser's answer once it closes: the picked path runs the pending
+    /// follow-up; a cancelled request is dropped, answering none like the system dialog's cancel.
+    pub(crate) fn poll_file_browser(&mut self) {
+        let received = self.file_browser.rx.as_mut().map(|rx| rx.try_recv());
+        match received {
+            Some(Ok(answer)) => {
+                self.file_browser.rx = None;
+                let follow = self.pending_follow.take();
+                // Cancelled, or nothing waiting: nothing to apply.
+                if let (Some(path), Some(follow)) = (answer, follow) {
+                    follow(self, path);
+                }
+            }
+            Some(Err(std::sync::mpsc::TryRecvError::Disconnected)) => {
+                // The browser was dropped without answering (its sender died): nothing waits.
+                self.file_browser.rx = None;
+                self.pending_follow = None;
+            }
+            Some(Err(std::sync::mpsc::TryRecvError::Empty)) | None => {}
+        }
     }
 
     /// A dropped or picked file read synchronously: presentations open, media is inserted on

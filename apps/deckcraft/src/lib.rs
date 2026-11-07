@@ -170,6 +170,12 @@ fn services(native_wayland: bool) -> Services {
         services.clipboard_html = pasteboard.then(|| Box::new(pasteboard::html) as Box<dyn FnMut() -> Option<String>>);
         services.clipboard_set_html = pasteboard.then(|| Box::new(pasteboard::set_html) as Box<dyn FnMut(&str, &str) -> bool>);
     }
+    #[cfg(target_os = "android")]
+    {
+        // Android has no rfd backend: the app-private storage is the root the built-in browser may
+        // reach (spec C), so every file request is served there instead of answering none.
+        services.app_files_dir = android_storage::base();
+    }
     services
 }
 
@@ -266,7 +272,13 @@ fn run_inner(#[cfg(target_os = "android")] android_app: Option<android_activity:
     #[cfg(target_os = "android")]
     if let Some(app) = &android_app {
         match app.internal_data_path() {
-            Some(base) => android_storage::set(base),
+            Some(base) => {
+                android_storage::set(base);
+                // The built-in browser opens in this folder (spec C): create it now, so the first
+                // file request starts in Documents rather than at the storage root. A failure to
+                // create it is logged; the browser then opens at the root, which is fair.
+                let _ = android_storage::documents();
+            }
             None => log::warn!("no app-private storage: the activity has no internal data path"),
         }
     }

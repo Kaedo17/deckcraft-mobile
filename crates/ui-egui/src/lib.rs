@@ -50,6 +50,7 @@ pub use control::{ControlRequest, ControlResponse};
 
 mod app;
 mod clock;
+mod file_browser;
 mod ime_hooks;
 pub mod panels;
 mod services;
@@ -229,6 +230,11 @@ pub struct SlideApp {
     /// Spelling squiggles, checked on a worker thread.
     pub squiggles: squiggles::Squiggles,
     pub dialog: Option<dialogs::Dialog>,
+    /// The built-in file browser serving a pending pick on a host with no system dialog
+    /// (Android); its answer is applied by [`SlideApp::poll_file_browser`] on the next logic pass.
+    pub(crate) file_browser: file_browser::State,
+    /// What the browser's answer runs: the same follow-up the system dialog's answer took.
+    pending_follow: Option<Box<dyn FnOnce(&mut SlideApp, std::path::PathBuf) + Send>>,
     /// The word looked up in the Thesaurus pane.
     pub thesaurus_query: String,
     pub show: Option<show::Show>,
@@ -454,6 +460,8 @@ mod compare_tests;
 mod eyedropper_tests;
 #[cfg(test)]
 mod field_frame_tests;
+#[cfg(test)]
+mod file_browser_tests;
 #[cfg(test)]
 mod find_dialog_tests;
 #[cfg(test)]

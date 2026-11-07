@@ -43,10 +43,11 @@ pub fn config() -> Option<PathBuf> {
     dir("config")
 }
 
-/// Presentations the app offers to open and save (the in-app file browser's root, a later step).
-#[cfg_attr(target_os = "android", allow(dead_code))] // the browser wires it in next; until then nothing lists it
+/// Presentations the app offers to open and save: the in-app file browser starts here (spec C).
+/// The name matches the browser's start folder (`ui-egui`'s `app_start`).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))] // android creates it at launch; desktop hosts don't list it
 pub fn documents() -> Option<PathBuf> {
-    dir("documents")
+    dir("Documents")
 }
 
 /// AutoRecover copies, beside the desktop's `<settings dir>/Recovery`.
