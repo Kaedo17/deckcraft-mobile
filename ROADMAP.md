@@ -2,6 +2,7 @@
 
 **Stage: alpha** · next: beta, ~20 points and ~120–210 h away
 
+> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-11-08 · **Change:** minor (Android arm64 port completes on the fork: touch arbitration on the canvas and in the slide sorter, finger-drag scrolling for every panel and dialog body, fingertip scroll bands, a 50% interface-size floor, and Back answering Escape; Platforms readiness ~80% → ~88%; product parity scores and stage unchanged) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 > **Last reviewed:** 2026-11-04 · **Last updated:** 2026-11-04 · **Change:** trivial (Ogg Opus recovery includes trailing packets without granules in its reported duration; parity scores unchanged) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 > **Last reviewed:** 2026-11-02 · **Last updated:** 2026-11-03 · **Change:** trivial (progress log: web `?host=parent` bridge opens and saves through a same-origin framing page; scores unchanged) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
@@ -75,7 +76,7 @@ EMF/SVG pictures, the data-loss and startup-crash bugs (#60, #40, #59) and the b
 | Localization | ~8% | 55–90 + native review | [docs/localization-parity.md](docs/localization-parity.md) |
 | Performance (unmeasured) | ~55% | 10–20 | [docs/hardware-parity.md](docs/hardware-parity.md#performance) |
 | Stability | ~60% | 10–20 | [docs/gaps.md](docs/gaps.md#stability) |
-| Platforms | ~80% | 5–10 | [Downloads in README](README.md#downloads) |
+| Platforms | ~88% | 3–8 | [Downloads in README](README.md#downloads) |
 | Ecosystem (templates; add-ins out of scope) | ~25% | 10–20 | [docs/gaps.md](docs/gaps.md#ecosystem) |
 | AI features | ~10% | 20–40 | [docs/gaps.md](docs/gaps.md#ai-features) |
 | Automation ✱ (CLI, control channel, MCP) | ahead | 0 | [docs/mcp.md](docs/mcp.md) |
@@ -154,6 +155,7 @@ app's JSON control channel (`deckcraft --control PORT`).
 
 | Date | What landed |
 |---|---|
+| 2026-11-08 | Android arm64 port completes on the fork: a finger drag pans the canvas instead of growing a marquee, a hold opens the canvas menu, the slide sorter's bars and thumbnails scroll by drag and reorder on hold-then-drag, every panel, dialog body, gallery and the file browser scrolls by finger drag, scroll bars take a 24-point fingertip band, Interface size reaches 50%, and Back answers Escape. Vendored winit, app-private storage, the built-in file browser, the shared-storage grant and modifier-stamped chords landed earlier on `android/arm64-port` |
 | 2026-11-04 | Ogg Opus recovery keeps trailing packets without granules in the total duration, matching their recovered positions; valid end trimming stays covered |
 | 2026-11-03 | Web: the `?host=parent` bridge (as in GridCraft, WordCraft and PdfCraft) lets a same-origin page that frames DeckCraft send a presentation and store its saves; Save writes an opened .pptx back as .pptx under its own name, as on the desktop |
 | 2026-11-02 | Slide show on Linux and the BSDs: Presenter View stays off when winit lists exactly one display, as in PowerPoint; if it lists none, the setting is kept. On one display the presenter window covered the show, and the hidden window stalled every frame: slide changes took up to ~1.7 s under Hyprland (#1156) |
@@ -340,6 +342,7 @@ app's JSON control channel (`deckcraft --control PORT`).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-08 | minor | Android arm64 port lands on the fork: touch arbitration for the canvas and sorter, finger-drag scroll bodies, fingertip scroll bands, a 50% interface floor and Back-as-Escape. Platforms readiness ~80% → ~88%; product parity scores unchanged |
 | 2026-11-04 | trivial | Ogg Opus recovery duration includes its recovered tail; parity scores unchanged |
 | 2026-11-02 | trivial | Progress log: run alternate-language metadata round-trips through native and PPTX formats; product parity scores unchanged |
 | 2026-11-03 | trivial | Reuse Slides brings referenced custom table styles along; scores unchanged |

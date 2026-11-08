@@ -19,8 +19,8 @@
 
 <p align="center">
   Build decks with themes, layouts, shapes, pictures, tables, charts, transitions and animations,
-  open and save .pptx presentation files, and present them full screen. Native on macOS, Windows, Linux
-  and FreeBSD, and in the browser. Every button is also a command that the CLI and AI agents
+  open and save .pptx presentation files, and present them full screen. Native on macOS, Windows, Linux,
+  FreeBSD and Android, and in the browser. Every button is also a command that the CLI and AI agents
   (through MCP) can drive.
 </p>
 
@@ -28,7 +28,7 @@
   <img alt="Status: early development" src="https://img.shields.io/badge/status-early%20development-f26b1d?style=flat-square">
   <img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square">
   <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-b7410e?style=flat-square">
-  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux%20%C2%B7%20BSD%20%C2%B7%20Web-555?style=flat-square">
+  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux%20%C2%B7%20BSD%20%C2%B7%20Android%20%C2%B7%20Web-555?style=flat-square">
   <br>
   <a href="https://sonarcloud.io/project/overview?id=storytold_deckcraft"><img alt="Scanned by SonarCloud" src="https://img.shields.io/badge/Scanned_by-SonarCloud-4b9fd5?style=flat-square&logo=sonarqubecloud&logoColor=white"></a>
   <a href="https://coderabbit.ai"><img alt="Reviewed by CodeRabbit" src="https://img.shields.io/coderabbit/prs/github/storytold/deckcraft?style=flat-square&label=Reviewed%20by%20CodeRabbit&logo=coderabbit"></a>
@@ -119,6 +119,28 @@ On Linux, the build also needs the ALSA headers for slide-show sound: `alsa-lib-
 Fonts come from [craft-fonts](https://github.com/storytold/craft-fonts): clone it next to this repo
 (`../craft-fonts`) and local builds pick it up automatically; without it DeckCraft uses your system
 fonts.
+
+Android builds with `cargo-apk` and the Android NDK (Rust's `aarch64-linux-android` target):
+
+```sh
+rustup target add aarch64-linux-android
+cargo install cargo-apk
+export ANDROID_HOME=$HOME/Android/Sdk
+export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/<revision>   # see the note below
+export CARGO_APK_RELEASE_KEYSTORE=/path/to/deckcraft-release.jks   # release builds only
+export CARGO_APK_RELEASE_KEYSTORE_PASSWORD=...
+
+cargo apk build -p deckcraft-android              # debug APK -> target/debug/apk/
+cargo apk build -p deckcraft-android --release    # signed APK -> target/release/apk/
+```
+
+`cargo apk` runs cargo inside the NDK environment, so the C dependencies build with the NDK's clang.
+It only accepts an SDK platform inside the NDK's own range — NDK r29 stops at API 35, r30 reaches 37 —
+so install the platform that matches your NDK; this app compiles against API 36, which needs r30 or
+newer. The release keystore is yours, kept outside the repository: `keytool -genkeypair -keystore
+deckcraft-release.jks -alias deckcraft -keyalg RSA -keysize 4096`, where cargo-apk requires the key
+password to equal the store password. Fonts come from `../craft-fonts` as above, and the launcher icon
+is rendered by `cargo xtask mipmaps`.
 
 Each [GitHub release](https://github.com/storytold/deckcraft/releases) has ready-made builds, on Linux as
 an AppImage, a `.deb`, an `.rpm` and a tarball. On Gentoo, the community [::snakebyte
@@ -270,6 +292,29 @@ ALSA headers).
 | Build | File | Notes |
 |---|---|---|
 | Static site | `deckcraft-web-<ver>.zip` | Runs in a modern browser; host it on any static server |
+
+### Android
+
+| Build | File | Notes |
+|---|---|---|
+| arm64-v8a APK | `deckcraft-<ver>-android-arm64.apk` | Android 9 (API 28) and newer; landscape. Published in the [fork](https://github.com/Kaedo17/deckcraft-mobile/releases), not in the upstream releases |
+
+Install it from a terminal, over adb:
+
+```sh
+adb install deckcraft-<ver>-android-arm64.apk
+```
+
+Android has no system file picker, so every Open, Save As, Import and Export is answered by DeckCraft's
+built-in browser over the app's own storage (`files/Documents/`); *Shared storage* (`/storage/emulated/0`)
+appears only once you grant **All files access** in Android's settings, and Android 10 stays inside app
+storage. **Back** dismisses a dialog or menu instead of leaving the app (**Home** leaves it). Interface
+size runs down to 50%, which is what a landscape tablet wants; scroll bars widen to a fingertip band once
+a finger has been seen, a finger drag pans the canvas and scrolls panels, and a hold of about half a
+second then a drag picks a slide up to reorder it.
+
+There is no store package: builds are signed locally with the keystore above, so there is no Google
+Play or F-Droid listing and no in-app update check on Android.
 
 ## The Crafting Apps
 

@@ -1,6 +1,6 @@
 # Where DeckCraft falls short of PowerPoint
 
-> **Last reviewed:** 2026-10-30 · **Last updated:** 2026-11-04 · **Change:** trivial (workflow-breaking regression fixed: Ctrl+C/X/V use the system clipboard again; #1414 to re-test on Windows; previous: trivial, run alternate language and reflection transforms survive saves; reused slide contents scale to the destination, picker thumbnails remain a gap; previous: trivial (locked No Fill and no-outline click-through regression coverage added; No Fill hit-testing follows resolved fill instead of the presence of a style (#1621); scores unchanged)) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
+> **Last reviewed:** 2026-10-30 · **Last updated:** 2026-11-08 · **Change:** trivial (Android port recorded as a Platforms section: its shortfalls are port gaps, not PowerPoint-parity gaps, so the ranked list and the parity scores are unchanged; previous: trivial (workflow-breaking regression fixed: Ctrl+C/X/V use the system clipboard again; #1414 to re-test on Windows; previous: trivial, run alternate language and reflection transforms survive saves; reused slide contents scale to the destination, picker thumbnails remain a gap; previous: trivial (locked No Fill and no-outline click-through regression coverage added; No Fill hit-testing follows resolved fill instead of the presence of a style (#1621); scores unchanged)) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
 Every known shortfall, one entry each, ranked by how much it stops someone who presents with
 PowerPoint from switching. This is the work list: pick from the top. Numbers are summarized in
@@ -364,10 +364,33 @@ Detail in [localization-parity.md](localization-parity.md).
   services; an offline rule-based Designer is in the catalogue (P2). Local models (speech-to-text
   for subtitles, translation) need an owner decision on licensed models. 20–40 h.
 
+## Platforms
+
+PowerPoint ships no Android version, so these are shortfalls of DeckCraft's own Android arm64 port
+(`android/arm64-port` in the fork, `ai.storyteller.deckcraft`), not PowerPoint-parity gaps: they are
+not in the ranked list above and they do not move the parity scores.
+
+- **Software-only video decode on Android**; no MediaCodec path. Same shortfall as the desktop
+  hardware-decode entry above, and it costs frames on a tablet. 6–12 h.
+- **No store packaging and no in-app update check** on Android: the signed APK is built locally with
+  `cargo apk build --release` and a private keystore. No Google Play or F-Droid listing, and
+  `craft-update` is gated off Android, so an out-of-date install stays out of date until you rebuild
+  it. 2–4 h for a listing plus an update check.
+- **Shared storage only behind Android's "All files access" grant**; Android 10 targets scoped
+  storage, so nothing outside the app is offered there at all. Android's design, not a bug.
+- **Clipboard text only**: `arboard` has no Android backend, so an image copied elsewhere cannot be
+  pasted, and clipboard chords typed into a text field rely on egui-winit's real `ModifiersChanged`,
+  which winit's Android backend never emits. AccessKit accessibility is off on Android too, as it has
+  no backend there.
+- **No single-instance forwarding** on Android: a second launch opens a second activity rather than
+  focusing the running one.
+- **Print and the photo-album dialog keep their desktop-only gaps**, unchanged by the port.
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-08 | trivial | Android port shortfalls recorded as a Platforms section (software-only decode, no store package or update check, shared storage behind the grant, clipboard text only, no single-instance forwarding, print and photo album unchanged). Not PowerPoint gaps: ranked list and scores unchanged |
 | 2026-11-02 | trivial | Run alternate-language metadata now survives native and PPTX saves; UI and proofing gaps remain; scores unchanged |
 | 2026-11-02 | trivial | PPTX reflection geometry is retained through native and PPTX resaves; no rendering parity claim |
 | 2026-11-02 | trivial | Reused slide geometry and content scale to the destination; picker thumbnails remain the reuse gap |
