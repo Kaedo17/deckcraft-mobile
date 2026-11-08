@@ -23,7 +23,7 @@ fn transform_gallery(app: &mut SlideApp, ui: &mut Ui) {
         }
     });
     ui.label("Warp");
-    egui::ScrollArea::vertical().max_height(220.0).id_salt("text_warp_gallery").show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(220.0).id_salt("text_warp_gallery").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
             if warp_tile(ui, "", "No Transform", current.is_none()) {

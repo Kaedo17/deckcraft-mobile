@@ -98,7 +98,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                 master_list(app, ui);
                 return;
             }
-            let out = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            let out = crate::widgets::panel_scroll(egui::ScrollArea::vertical()).auto_shrink([false, false]).show(ui, |ui| {
                 ui.add_space(8.0);
                 list(app, ui);
                 ui.add_space(20.0);
@@ -367,7 +367,7 @@ fn master_list(app: &mut SlideApp, ui: &mut Ui) {
     let Some(st) = app.session.active() else { return };
     let doc = st.doc.clone();
     let target = st.selection.target;
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).auto_shrink([false, false]).show(ui, |ui| {
         ui.add_space(8.0);
         let width = ui.available_width();
         for (mi, m) in doc.masters.iter().enumerate() {

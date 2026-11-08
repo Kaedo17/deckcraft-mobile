@@ -126,7 +126,7 @@ pub(super) fn zoom_menu(app: &mut SlideApp, ui: &mut Ui) {
     if items.is_empty() {
         ui.label(if kind == 1 { "The presentation has no sections. Add one with Home › Section." } else { "No slides." });
     }
-    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(260.0).show(ui, |ui| {
         for (i, label) in items.iter().enumerate() {
             let mut on = picked.contains(&i);
             if ui.checkbox(&mut on, label).changed() {

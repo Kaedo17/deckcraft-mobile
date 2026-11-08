@@ -291,6 +291,8 @@ impl SlideApp {
     /// Run the admitted root UI pass, including setup gating, panels, canvas, dialogs, overlays, and
     /// show mode.
     fn ui_inner(&mut self, ui: &mut egui::Ui) {
+        // Fingertip hit bands on the scroll bars whenever a touch screen has been seen.
+        crate::widgets::touch_scroll_target(ui);
         let ctx = ui.ctx().clone();
         self.ime_frame_viewport = Some(ctx.viewport_id());
         self.ime_pending = None;

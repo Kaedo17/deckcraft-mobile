@@ -272,7 +272,7 @@ pub(super) fn presenter_window(ctx: &egui::Context, show: &mut Show, doc: &std::
                 });
                 let notes_rect = Rect::from_min_max(pos2(right.min.x, notes_head.max.y + 4.0), right.max);
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(notes_rect));
-                egui::ScrollArea::vertical().show(&mut child, |ui| {
+                crate::widgets::panel_scroll(egui::ScrollArea::vertical()).show(&mut child, |ui| {
                     presenter_notes(ui, notes, show.notes_px);
                 });
             });

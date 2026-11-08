@@ -39,13 +39,16 @@ pub(super) fn date_time_dialog(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) 
         d.fields.insert("format".into(), (*k).to_string());
     }
     let format = d.get("format", "datetime1");
-    egui::ScrollArea::vertical().max_height(280.0).min_scrolled_height(220.0).auto_shrink([false, false]).show(ui, |ui| {
-        for (kind, sample) in &rows {
-            if ui.selectable_label(format == *kind, sample).clicked() {
-                d.fields.insert("format".into(), (*kind).to_string());
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(280.0).min_scrolled_height(220.0).auto_shrink([false, false]).show(
+        ui,
+        |ui| {
+            for (kind, sample) in &rows {
+                if ui.selectable_label(format == *kind, sample).clicked() {
+                    d.fields.insert("format".into(), (*kind).to_string());
+                }
             }
-        }
-    });
+        },
+    );
     let lang_label = DATE_LANGS.iter().find(|(k, _)| *k == lang).map(|(_, l)| *l).unwrap_or("English (United States)");
     ui.horizontal(|ui| {
         ui.label("Language:");

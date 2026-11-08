@@ -107,7 +107,7 @@ pub(super) fn animations(app: &mut SlideApp, ui: &mut Ui) {
         // The menu opens under the title bar and the ribbon; keep that chrome out of the cap.
         let max_h = (r.ctx.viewport_rect().height() - 160.0).max(120.0);
         egui::Popup::menu(&r).width(260.0).show(|ui| {
-            egui::ScrollArea::vertical().id_salt("add_animation").max_height(max_h).show(ui, |ui| {
+            crate::widgets::panel_scroll(egui::ScrollArea::vertical()).id_salt("add_animation").max_height(max_h).show(ui, |ui| {
                 for a in deckcraft_model::anim::ANIMATIONS.iter().filter(|a| a.2 != AnimClass::Media) {
                     if ui
                         .button(format!(

@@ -23,6 +23,7 @@ mod media;
 mod overlays;
 mod rulers;
 mod scroll;
+mod touch;
 
 use context_menu::context_menu;
 use guides::{draw_grid, draw_guides, grid_line_step};
@@ -40,6 +41,7 @@ pub(crate) use overlays::text_marks;
 pub(crate) use rulers::ruler_steps;
 use rulers::{ruler, ruler_markers};
 use scroll::{scroll_bar, visible_region};
+use touch::TouchVerdict;
 
 /// Slide-to-screen mapping.
 #[derive(Clone, Copy, Debug)]
@@ -168,6 +170,10 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
     let mut offset: egui::Vec2 = ui.data_mut(|d| d.get_temp(scroll_id).unwrap_or_default());
     let last: Option<(Rect, f32)> = ui.data_mut(|d| d.get_temp(last_id));
     let resp = ui.allocate_rect(avail, Sense::click_and_drag());
+    // A finger press is arbitrated before anything consumes it (see `canvas::touch`): an early
+    // move pans the slide stack, the engine's own press (shape, caret, handle) stands the
+    // arbiter down, and a still hold past the expiry lets a selection grow as a desktop drag does.
+    let tv = touch::verdict(ui, &resp, app.session.tool.dragging() && !app.session.tool.marquee_press());
     let (wheel, zoom_delta, hover) = ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
     let zooming = resp.hovered() && (zoom_delta - 1.0).abs() > 1e-3;
     if zooming {
@@ -230,6 +236,10 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
             wheel_navigation(app, ui, carry_id, doc_uid);
         }
     }
+    // A finger pan answers the same content-follows-finger sign as the wheel (#745's canvas
+    // scroll), and only where there is something to scroll: with nothing to pan, a quick release
+    // stays the engine's click (see `canvas::touch`).
+    finger_pan(tv, &mut offset);
     offset.x = offset.x.clamp(0.0, overflow.x);
     offset.y = offset.y.clamp(0.0, overflow.y);
     // On the physical pixel grid, so the slide texture is one texel per device pixel (#184). The
@@ -334,13 +344,15 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
         ruler(&painter, avail, slide_rect, scale, app.session.prefs.units, &t);
         ruler_markers(app, ui, &painter, avail, xf, &t);
     }
-    pointer(app, ui, &resp, xf);
+    pointer(app, ui, &resp, xf, finger_panning(tv));
     if !app.anim_preview_active() {
         overlays(app, ui, &painter, xf, &t);
         ime_output(app, ui, xf);
         media_bar(app, ui, xf);
         gif_buttons(app, ui, xf, &gifs);
-        if resp.secondary_clicked()
+        // A still finger hold opens the same menu as a right-click (egui's long-press fires on
+        // the press itself; the arbiter leaves it to the menu once the hold expires).
+        if menu_press(&resp)
             && let Some(p) = resp.interact_pointer_pos()
         {
             let word = app.session.active().and_then(|st| app.squiggles.word_at(st, xf.to_slide(p), 4.0 / xf.scale.max(0.01) as f64));
@@ -354,6 +366,29 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
             let fill = if active { t.text_dim } else { t.text_faint };
             painter.rect_filled(thumb.shrink(2.0), CornerRadius::same(3), fill);
         }
+    }
+}
+
+/// Whether the arbiter turned this frame's press into a pan: the engine's Drag events stand down
+/// for the rest of it, so an empty-slide marquee never grows (see [`touch::verdict`] and
+/// [`input::pointer`]).
+fn finger_panning(tv: TouchVerdict) -> bool {
+    matches!(tv, TouchVerdict::Panning { .. })
+}
+
+/// Whether this press opens the canvas menu: a right-click, or a finger held past egui's
+/// long-press timeout (`TouchVerdict::Owned` lets the arbiter stand down for the menu — see
+/// [`touch::verdict`]).
+fn menu_press(resp: &egui::Response) -> bool {
+    resp.secondary_clicked() || resp.long_touched()
+}
+
+/// Apply the arbiter's finger pan to the slide-stack offset, in the same content-follows-finger
+/// sign as the wheel (#745's canvas scroll). Outside the overflow the offset clamps to nothing, so
+/// a pan where there is nothing to scroll is a click, not a move.
+fn finger_pan(tv: TouchVerdict, offset: &mut egui::Vec2) {
+    if let TouchVerdict::Panning { delta } = tv {
+        *offset -= delta;
     }
 }
 

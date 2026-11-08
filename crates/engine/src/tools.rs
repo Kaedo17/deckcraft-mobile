@@ -301,6 +301,13 @@ impl ToolState {
         self.drag.is_some()
     }
 
+    /// Whether the latched press is a marquee drag on an empty slide. The Android canvas
+    /// arbiter pans instead of growing a selection on a finger drag, and may take over exactly
+    /// these presses; every other latch (Move, TextSelect, handles) is the engine's own.
+    pub fn marquee_press(&self) -> bool {
+        matches!(self.drag, Some(Drag::Marquee { .. }))
+    }
+
     /// The shape in Edit Points, while it is still the one selected shape.
     pub fn editing_points(&self, st: &crate::DocState) -> Option<ShapeId> {
         // Only a freeform has points: after Undo takes the conversion back, Edit Points is over.

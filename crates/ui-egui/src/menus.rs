@@ -148,7 +148,7 @@ pub fn palette(app: &mut SlideApp, ctx: &egui::Context) {
             if enter && let Some((id, ..)) = items.get(sel) {
                 run = Some(id.clone());
             }
-            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+            crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(320.0).show(ui, |ui| {
                 for (k, (id, label, sc)) in items.iter().enumerate() {
                     let r = ui.horizontal(|ui| {
                         let resp = ui.selectable_label(k == sel, label);

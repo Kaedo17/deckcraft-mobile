@@ -66,7 +66,7 @@ pub(super) fn smartart_gallery(
     use deckcraft_engine::cmd::smartart::{LAYOUTS, category};
     ui.set_min_width(440.0);
     let slide = app.session.active().map(|d| d.selection.slide).unwrap_or(0);
-    egui::ScrollArea::vertical().max_height(520.0).show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(520.0).show(ui, |ui| {
         for (cat, title) in [
             ("list", "List"),
             ("process", "Process"),
@@ -129,7 +129,7 @@ pub fn shapes_gallery(ui: &mut Ui) -> Option<&'static str> {
     let t = Tokens::get(ui.ctx());
     let mut out = None;
     ui.set_max_width(330.0);
-    egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(420.0).show(ui, |ui| {
         for cat in deckcraft_geom::preset::Category::ALL {
             ui.label(egui::RichText::new(cat.label()).font(theme::bold(12.0)));
             ui.horizontal_wrapped(|ui| {

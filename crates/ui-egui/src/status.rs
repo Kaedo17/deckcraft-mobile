@@ -210,7 +210,7 @@ pub fn notes_pane(app: &mut SlideApp, ui: &mut Ui) {
             let mut draft = app.notes_buf.2.clone();
             let look = crate::notes::Look { size: 13.0, color: None };
             // Long notes scroll inside the pane instead of spilling over the slide (#221).
-            let out = egui::ScrollArea::vertical()
+            let out = crate::widgets::panel_scroll(egui::ScrollArea::vertical())
                 .max_height(ui.available_height())
                 .auto_shrink([false, false])
                 .show(ui, |ui| {

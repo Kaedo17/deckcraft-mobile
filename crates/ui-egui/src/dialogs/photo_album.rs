@@ -152,22 +152,27 @@ fn with_selected_picture(d: &mut Dialog, f: impl FnOnce(&mut serde_json::Map<Str
 pub(super) fn photo_album_dialog(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     seed_photo_album(app, d);
     ui.set_min_width(440.0);
-    egui::ScrollArea::vertical().max_height(520.0).id_salt("album_body").show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(520.0).id_salt("album_body").show(ui, |ui| {
         ui.set_min_width(420.0);
         ui.label("Pictures in album");
         let items = album_items(d).unwrap_or_default();
         let mut sel = d.get("sel", "0").parse::<usize>().unwrap_or(0);
         // Fixed height so adding pictures does not push Create past the window.
-        egui::ScrollArea::vertical().max_height(120.0).min_scrolled_height(120.0).auto_shrink([false, false]).id_salt("album_list").show(ui, |ui| {
-            if items.is_empty() {
-                ui.label(egui::RichText::new("No pictures yet").color(Tokens::get(ui.ctx()).text_dim));
-            }
-            for (i, item) in items.iter().enumerate() {
-                if ui.selectable_label(sel == i, album_item_label(item)).clicked() {
-                    sel = i;
+        crate::widgets::panel_scroll(egui::ScrollArea::vertical())
+            .max_height(120.0)
+            .min_scrolled_height(120.0)
+            .auto_shrink([false, false])
+            .id_salt("album_list")
+            .show(ui, |ui| {
+                if items.is_empty() {
+                    ui.label(egui::RichText::new("No pictures yet").color(Tokens::get(ui.ctx()).text_dim));
                 }
-            }
-        });
+                for (i, item) in items.iter().enumerate() {
+                    if ui.selectable_label(sel == i, album_item_label(item)).clicked() {
+                        sel = i;
+                    }
+                }
+            });
         d.fields.insert("sel".into(), sel.to_string());
         ui.horizontal(|ui| {
             if ui.button("Add Pictures…").clicked()

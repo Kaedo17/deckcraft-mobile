@@ -945,6 +945,22 @@ fn distribute_wide_middle_stays_in_selection_bounds() {
 }
 
 #[test]
+fn marquee_press_is_named_for_the_ui_touch_arbiter() {
+    // The Android canvas arbiter pans the slide stack on a finger drag; it must know whether
+    // the engine latched a marquee (an empty press, which the arbiter may take over) or an
+    // owned press (a shape, caret, handle: the arbiter stands down).
+    let mut s = session();
+    let ev = |kind, x, y| PointerEvent { kind, x, y, mods: Mods::default(), tol: 3.0, pressure: None };
+    s.execute("slide.new", &json!({})).unwrap();
+    s.execute("shape.insert", &json!({"preset": "rect", "rect": [100.0, 100.0, 200.0, 200.0]})).unwrap();
+    s.pointer(ev(PointerKind::Down, 4000.0, 4000.0)).unwrap();
+    assert!(s.tool.dragging() && s.tool.marquee_press(), "an empty press is a marquee");
+    s.pointer(ev(PointerKind::Up, 4000.0, 4000.0)).unwrap();
+    s.pointer(ev(PointerKind::Down, 150.0, 150.0)).unwrap();
+    assert!(s.tool.dragging() && !s.tool.marquee_press(), "a shape press is owned");
+}
+
+#[test]
 fn pointer_draw_move_resize() {
     let mut s = session();
     s.set_tool(ToolKind::Shape { preset: "rect".into() });

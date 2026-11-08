@@ -62,6 +62,12 @@ fn groups(doc: &Presentation) -> Vec<(Option<usize>, Vec<usize>)> {
     out
 }
 
+/// The scroll area the sorter lives in: `touch_row` pans exactly this area when a finger
+/// scrolls a row.
+fn sorter_area() -> egui::Id {
+    egui::Id::unique("deckcraft-sorter-scroll")
+}
+
 struct Header<'a> {
     uid: u64,
     index: usize,
@@ -73,6 +79,7 @@ struct Header<'a> {
 /// Render one slide-sorter section header, handle its collapse/drag interactions, and return the
 /// occupied rectangle.
 fn section_header(app: &mut SlideApp, ui: &mut Ui, h: &Header<'_>) -> Rect {
+    // (verdict wired below via touch_row at the header's own press, see the drag branch.)
     let t = Tokens::get(ui.ctx());
     let width = ui.available_width();
     let (r, _) = ui.allocate_exact_size(vec2(width, 32.0), Sense::hover());
@@ -140,7 +147,17 @@ fn section_header(app: &mut SlideApp, ui: &mut Ui, h: &Header<'_>) -> Rect {
         app.sorter.rename_started = false;
     }
     let on_chevron = resp.interact_pointer_pos().is_some_and(|p| chev.contains(p));
-    if resp.drag_started() && !on_chevron && app.sorter.renaming.is_none() {
+    // A finger press on a section bar is arbitrated (see `widgets::touch_row`): an early move
+    // scrolls the sorter, a hold then a move grabs the whole section to reorder, a still hold
+    // is left to egui's long-press (the bar's menu), and a mouse press grabs on drag_started as
+    // it always did.
+    let touch = crate::widgets::touch_row(ui, &resp, sorter_area());
+    let scrolling = matches!(touch, crate::widgets::TouchRow::Scroll | crate::widgets::TouchRow::Pressing);
+    if resp.drag_started() && !on_chevron && app.sorter.renaming.is_none() && !scrolling {
+        app.sorter.drag = Some((h.index, h.index));
+        app.thumb_drag = None;
+    }
+    if matches!(touch, crate::widgets::TouchRow::Grab) && !on_chevron && app.sorter.renaming.is_none() && app.sorter.drag.is_none() {
         app.sorter.drag = Some((h.index, h.index));
         app.thumb_drag = None;
     }
@@ -186,6 +203,8 @@ struct Grid<'a> {
     multi: &'a [SlideId],
     tw: f32,
     th: f32,
+    /// The enclosing scroll area, for `touch_row` (see the thumbnail rows).
+    area: egui::Id,
 }
 
 /// One section's thumbnails. Returns whether a thumbnail is still being drawn.
@@ -248,7 +267,14 @@ fn place_slides(app: &mut SlideApp, ui: &mut Ui, g: &Grid<'_>, budget: &mut u32,
                     let _ = app.run("slide.go", json!({"index": i}));
                     app.ui.view = crate::ViewMode::Normal;
                 }
-                if resp.drag_started() && app.sorter.drag.is_none() {
+                // The same arbitration as the section bars: a finger that moves early scrolls,
+                // a hold then a move picks the slide up for a reorder.
+                let touch = crate::widgets::touch_row(ui, &resp, g.area);
+                let scrolling = matches!(touch, crate::widgets::TouchRow::Scroll | crate::widgets::TouchRow::Pressing);
+                if resp.drag_started() && app.sorter.drag.is_none() && !scrolling {
+                    crate::thumbs::start_slide_drag(app, i);
+                }
+                if matches!(touch, crate::widgets::TouchRow::Grab) && app.sorter.drag.is_none() && app.thumb_drag.is_none() {
                     crate::thumbs::start_slide_drag(app, i);
                 }
                 resp.context_menu(|ui| crate::thumbs::slide_menu(app, ui, i));
@@ -278,7 +304,11 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
     let multi = st.selection.slides.clone();
     let zoom = app.ui.sorter_zoom.clamp(0.5, 3.0);
     let grouped = groups(&doc);
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    crate::widgets::touch_scroll_target(ui);
+    // A finger dragged anywhere in the body pans it (drag-to-scroll forced on, so no touch
+    // detection is required), and the scroll bars get a fingertip hit band.
+    let sa = crate::widgets::panel_scroll(egui::ScrollArea::vertical().id_salt(sorter_area()).auto_shrink([false, false]));
+    sa.show(ui, |ui| {
         ui.add_space(12.0);
         ui.horizontal(|ui| {
             ui.add_space(24.0);
@@ -306,7 +336,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                     continue;
                 }
             }
-            let grid = Grid { doc: &doc, indices: slides, cur, multi: &multi, tw, th };
+            let grid = Grid { doc: &doc, indices: slides, cur, multi: &multi, tw, th, area: sorter_area() };
             if place_slides(app, ui, &grid, &mut budget, &mut rects) {
                 need_more = true;
             }
@@ -448,7 +478,7 @@ pub fn outline_pane(app: &mut SlideApp, ui: &mut Ui) {
             // Only the slides in view (and the current one, whose editor may have the focus) are
             // laid out; the rest take their last measured height (estimated until first shown).
             // Laying out every slide's editors each frame made a 2000-slide outline crawl.
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show_viewport(ui, |ui, viewport| {
+            crate::widgets::panel_scroll(egui::ScrollArea::vertical().auto_shrink([false, false])).show_viewport(ui, |ui, viewport| {
                 let origin = ui.cursor().top();
                 let margin = 300.0;
                 for (i, s) in doc.slides.iter().enumerate() {

@@ -40,9 +40,23 @@ impl Reported {
     }
 }
 
+/// Android's hardware and gesture Back report `KEYCODE_BACK` (4), and android-activity 0.6
+/// never delivers a `MainEvent::AppBack`, so the key reaches winit only as a raw code. The app
+/// treats Escape as "dismiss this" (dialogs, menus, cancellation), so BACK is answered as Escape
+/// at this boundary — and the dispatch stays `Handled`, so BACK never backgrounds the activity
+/// (Home does).
+pub const KEYCODE_BACK: i32 = 4;
+
+/// When `key_code` is Android's BACK key, the pressed state of the Escape to synthesize.
+/// Takes the code as an `i32` so the tests below, which run on every host through the
+/// workspace include shim, can name `KEYCODE_BACK` without the android-only `Keycode` enum.
+pub fn back_to_escape(key_code: i32, down: bool) -> Option<bool> {
+    (key_code == KEYCODE_BACK).then_some(down)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Reported;
+    use super::{back_to_escape, Reported, KEYCODE_BACK};
 
     /// Android's report of one physical click (`Down` + `ButtonPress`, then the mirror
     /// on release): exactly one press and one release reach the app.
@@ -80,5 +94,15 @@ mod tests {
         assert!(r.report(true));
         r.reset();
         assert!(r.report(true), "the next gesture's press is a new transition");
+    }
+
+    /// BACK maps to Escape: Down answers Some(true), Up and Cancel answer Some(false),
+    /// and no other key code maps at all (Home stays Home, the activity backgrounds).
+    #[test]
+    fn back_maps_to_escape_and_nothing_else_does() {
+        assert_eq!(back_to_escape(KEYCODE_BACK, true), Some(true), "BACK down is Escape pressed");
+        assert_eq!(back_to_escape(KEYCODE_BACK, false), Some(false), "BACK up is Escape released");
+        assert_eq!(back_to_escape(KEYCODE_BACK + 1, true), None);
+        assert_eq!(back_to_escape(KEYCODE_BACK - 1, false), None);
     }
 }

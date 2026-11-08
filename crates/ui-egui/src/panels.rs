@@ -66,7 +66,7 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
                 });
             });
             ui.add_space(6.0);
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match pane.as_str() {
+            crate::widgets::panel_scroll(egui::ScrollArea::vertical()).auto_shrink([false, false]).show(ui, |ui| match pane.as_str() {
                 "format" => format_shape(app, ui),
                 "background" => background(app, ui),
                 "animation" => animation(app, ui),

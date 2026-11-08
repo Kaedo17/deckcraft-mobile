@@ -284,7 +284,7 @@ impl View {
                     commands.push(key(egui::Key::CloseBracket.name()));
                 }
             });
-            egui::ScrollArea::vertical().show(right, |ui| {
+            crate::widgets::panel_scroll(egui::ScrollArea::vertical()).show(right, |ui| {
                 ui.label(
                     egui::RichText::new(if snapshot.notes.is_empty() { "No notes." } else { &snapshot.notes })
                         .size(snapshot.notes_px.clamp(10.0, 72.0)),
@@ -310,7 +310,7 @@ impl View {
         if snapshot.total > crate::show::GRID_CAP {
             ui.label(format!("First {} slides", crate::show::GRID_CAP));
         }
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        crate::widgets::panel_scroll(egui::ScrollArea::vertical()).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 for (i, texture) in self.grid.iter().enumerate() {
                     let size = egui::vec2(160.0, 90.0);

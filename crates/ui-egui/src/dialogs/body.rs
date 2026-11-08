@@ -216,7 +216,7 @@ fn dlg_hyperlink(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 .map(|s| s.doc.slides.iter().enumerate().map(|(i, sl)| format!("{}. {}", i + 1, sl.title())).collect())
                 .unwrap_or_default();
             let sel = d.get("slide", &slide_default).parse::<usize>().unwrap_or(0);
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+            crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(180.0).show(ui, |ui| {
                 for (i, t) in titles.iter().enumerate() {
                     if ui.selectable_label(sel == i, t).clicked() {
                         d.fields.insert("slide".into(), i.to_string());
@@ -550,7 +550,7 @@ fn dlg_action(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         "url" => field(ui, d, "Address:", "arg", if cur_kind == "url" { &cur_arg } else { "https://" }),
         "slide" => {
             let sel = d.get("arg", if cur_kind == "slide" { &cur_arg } else { "0" }).parse::<usize>().unwrap_or(0);
-            egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+            crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(140.0).show(ui, |ui| {
                 for (i, (_, t)) in slides.iter().enumerate() {
                     if ui.selectable_label(sel == i, t).clicked() {
                         d.fields.insert("arg".into(), i.to_string());
@@ -659,7 +659,7 @@ fn dlg_reuse_slides(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
         }
     });
-    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(260.0).show(ui, |ui| {
         for (i, title) in &slides {
             let mut on = !off(d, *i);
             let label = if title.trim().is_empty() { format!("{}  (no title)", i + 1) } else { format!("{}  {}", i + 1, title.trim()) };
@@ -825,7 +825,7 @@ fn dlg_replace_fonts(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         ui.vertical(|ui| {
             ui.add(egui::TextEdit::singleline(&mut to).desired_width(240.0).hint_text("Font name"));
             let needle = to.trim().to_lowercase();
-            egui::ScrollArea::vertical().max_height(140.0).id_salt("rf_list").show(ui, |ui| {
+            crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(140.0).id_salt("rf_list").show(ui, |ui| {
                 for f in crate::ribbon::font_families(app).iter().filter(|f| needle.is_empty() || f.to_lowercase().contains(&needle)).take(200) {
                     if ui.selectable_label(f.eq_ignore_ascii_case(to.trim()), f).clicked() {
                         to = f.clone();
@@ -950,7 +950,7 @@ fn dlg_spelling(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         ui.label("The spelling check is complete. No issues found.");
     }
     let mut add_ignore = None;
-    egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(320.0).show(ui, |ui| {
         for item in &list {
             let w = item.get("word").and_then(Value::as_str).unwrap_or("");
             let slide = item.get("slide").cloned().unwrap_or_default();
@@ -1068,7 +1068,7 @@ fn dlg_accessibility(app: &mut SlideApp, ui: &mut Ui, _d: &mut Dialog) -> bool {
     if list.is_empty() {
         ui.label("No accessibility issues found. People with disabilities should not have difficulty reading this document.");
     }
-    egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(300.0).show(ui, |ui| {
         for item in &list {
             ui.horizontal(|ui| {
                 ui.label(format!(
@@ -1110,7 +1110,7 @@ fn dlg_language(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
     });
     ui.label(if all { "Mark all text in the presentation as:" } else { "Mark selected text as:" });
-    egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(220.0).show(ui, |ui| {
         // The selection's own language first when the list doesn't have it.
         let own = (!crate::squiggles::LANGS.iter().any(|(_, t)| t.eq_ignore_ascii_case(&cur))).then(|| (cur.clone(), cur.clone()));
         let all = own.into_iter().chain(crate::squiggles::LANGS.iter().map(|(n, t)| (n.to_string(), t.to_string())));
@@ -1319,7 +1319,7 @@ fn dlg_autocorrect(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     let list = app.session.execute("text.autocorrect", &json!({})).ok().and_then(|v| v.get("entries").cloned());
     let entries: Vec<(String, String)> = list.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
     let q = from.trim().to_lowercase();
-    egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(220.0).show(ui, |ui| {
         egui::Grid::new("ac-list").striped(true).show(ui, |ui| {
             for (k, v) in entries.iter().filter(|(k, _)| q.is_empty() || k.to_lowercase().starts_with(&q)) {
                 ui.label(k);
@@ -1351,7 +1351,8 @@ fn dlg_preferences(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     // on release, and at once from the keyboard.
     let pending = d.fields.get("uiScale").and_then(|v| v.parse::<f32>().ok());
     let mut scale = pending.unwrap_or(app.ui.ui_scale);
-    let r = ui.add(egui::Slider::new(&mut scale, 0.75..=1.75));
+    // The floor is half size (roadmap §I: a landscape tablet must not be stuck at 75%).
+    let r = ui.add(egui::Slider::new(&mut scale, 0.5..=1.75));
     // No visible label here (the row is laid out to fit); the accessible name only.
     let enabled = r.enabled();
     r.widget_info(|| egui::WidgetInfo::slider(enabled, f64::from(scale), "Interface size"));

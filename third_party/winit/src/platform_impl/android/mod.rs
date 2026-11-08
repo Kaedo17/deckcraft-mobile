@@ -456,6 +456,32 @@ impl<T: 'static> EventLoop<T> {
                         input_status = InputStatus::Unhandled
                     },
                     keycode => {
+                        // BACK has no egui equivalent (see `primary_button::back_to_escape`):
+                        // answer Escape so BACK dismisses dialogs, menus and cancellations, and
+                        // consume the event so the activity never goes to the background (Home does).
+                        if let Some(pressed) = primary_button::back_to_escape(u32::from(keycode) as i32, matches!(key.action(), KeyAction::Down)) {
+                            let event = event::Event::WindowEvent {
+                                window_id: window::WindowId(WindowId),
+                                event: event::WindowEvent::KeyboardInput {
+                                    device_id: event::DeviceId(DeviceId(key.device_id())),
+                                    event: event::KeyEvent {
+                                        state: if pressed {
+                                            event::ElementState::Pressed
+                                        } else {
+                                            event::ElementState::Released
+                                        },
+                                        physical_key: keycodes::to_physical_key(Keycode::Escape),
+                                        logical_key: crate::keyboard::Key::Named(crate::keyboard::NamedKey::Escape),
+                                        location: keycodes::to_location(Keycode::Escape),
+                                        repeat: false,
+                                        text: None,
+                                        platform_specific: KeyEventExtra {},
+                                    },
+                                    is_synthetic: true,
+                                },
+                            };
+                            callback(event, self.window_target());
+                        } else {
                         let state = match key.action() {
                             KeyAction::Down => event::ElementState::Pressed,
                             KeyAction::Up => event::ElementState::Released,
@@ -492,6 +518,7 @@ impl<T: 'static> EventLoop<T> {
                             },
                         };
                         callback(event, self.window_target());
+                        }
                     },
                 }
             },

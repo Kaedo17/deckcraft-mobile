@@ -205,7 +205,7 @@ fn icon_library(app: &mut SlideApp, ui: &mut Ui) {
     let q = query.trim().to_lowercase();
     ui.data_mut(|d| d.insert_temp(id, query));
     let icons = deckcraft_engine::icons::icons();
-    egui::ScrollArea::vertical().id_salt("icon-scroll").max_height(420.0).show(ui, |ui| {
+    crate::widgets::panel_scroll(egui::ScrollArea::vertical()).id_salt("icon-scroll").max_height(420.0).show(ui, |ui| {
         if q.is_empty() {
             render_icon_categories(app, ui, icons, color, hover);
         } else {

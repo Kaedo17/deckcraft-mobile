@@ -86,7 +86,9 @@ pub(super) fn trackpad_scroll(events: &[egui::Event]) -> egui::Vec2 {
     })
 }
 
-pub(super) fn pointer(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf) {
+/// `scrolling` marks a finger press the canvas arbiter (`canvas::touch`) turned into a pan: the
+/// engine's Drag events stand down for the press, so an empty-slide marquee never grows.
+pub(super) fn pointer(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf, scrolling: bool) {
     if crate::eyedropper::canvas(app, ui, resp, xf) {
         return;
     }
@@ -123,7 +125,8 @@ pub(super) fn pointer(app: &mut SlideApp, ui: &Ui, resp: &egui::Response, xf: Xf
         app.session.pointer(ev(PointerKind::DoubleClick))
     } else if primary && resp.hovered() && !resp.secondary_clicked() && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {
         app.session.pointer(ev(PointerKind::Down))
-    } else if resp.dragged_by(egui::PointerButton::Primary) || (app.session.tool.dragging() && ui.input(|i| i.pointer.primary_down())) {
+    } else if (resp.dragged_by(egui::PointerButton::Primary) || (app.session.tool.dragging() && ui.input(|i| i.pointer.primary_down()))) && !scrolling
+    {
         app.session.pointer(ev(PointerKind::Drag))
     } else if app.session.tool.dragging() && ui.input(|i| i.pointer.primary_released() || !i.pointer.primary_down()) {
         app.session.pointer(ev(PointerKind::Up))

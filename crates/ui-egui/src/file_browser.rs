@@ -486,7 +486,7 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens, services: &crate::Services
         let entries: &[Entry] = b.listing.as_ref().map(|l| l.entries.as_slice()).unwrap_or(&[]);
         // An unreadable folder has its own message below; the hint is for a listing that came back empty.
         let listed = b.listing.is_ok();
-        egui::ScrollArea::vertical()
+        crate::widgets::panel_scroll(egui::ScrollArea::vertical())
             .id_salt("builtin_file_browser_list")
             .max_height(300.0)
             .min_scrolled_height(300.0)

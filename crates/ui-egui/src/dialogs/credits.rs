@@ -253,7 +253,7 @@ pub fn contributors_ui(ui: &mut egui::Ui) {
         // once its columns are dragged wider than the dialog.
         egui::ScrollArea::horizontal().auto_shrink([false, false]).show(ui, |ui| table(ui, &list, &mut v));
     } else {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        crate::widgets::panel_scroll(egui::ScrollArea::vertical()).auto_shrink([false, false]).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 for (i, c) in list.iter().enumerate() {
                     if i > 0 {

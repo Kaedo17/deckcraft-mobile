@@ -30,7 +30,7 @@ pub(super) fn font_dialog(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bo
             .selected_text(if family.is_empty() { " " } else { family.as_str() })
             .width(300.0)
             .show_ui(ui, |ui| {
-                egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                crate::widgets::panel_scroll(egui::ScrollArea::vertical()).max_height(280.0).show(ui, |ui| {
                     for f in &fams {
                         if ui.selectable_label(family == *f, f).clicked() {
                             d.fields.insert("family".into(), f.clone());
