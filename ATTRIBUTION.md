@@ -37,6 +37,7 @@ artwork. The ribbon and menu icons stay original drawings.
 | `crates/fonts/tests/fixtures/legacy-regular.ttf` | DeckCraft contributors | the same family's one-glyph Regular face, built by `make_legacy_font.py` (fontTools as the builder only) | CC0-1.0 | Font lookup by Windows family name tests |
 | `crates/render/tests/fixtures/make_colr_font.py` | DeckCraft contributors | this repository | MIT OR Apache-2.0 | Regenerates the COLR test font |
 | Lucide icon paths in `crates/engine/src/icon_data.rs` (Insert › Icons) | Lucide Contributors; Feather icons by Cole Bemis | https://github.com/lucide-icons/lucide/tree/440a1e1dfb1e712505308da46bead3c28b1f1398/icons (release 1.56.0, 2026-10-13) | ISC; MIT for the Feather-derived icons named in that commit's LICENSE | Stroke icons inserted as shapes |
+| `third_party/winit/**` (vendored winit 0.30.13, used through `[patch.crates-io]`) | The winit contributors (upstream authors listed in `third_party/winit/Cargo.toml`); the Craft suite's patches by Craft contributors | https://github.com/storytold/winit, branch `craft/0.30.13` at commit `a517b3846`, base upstream tag `v0.30.13` (`e9809ef5`) | Apache-2.0, licence text retained unchanged in `third_party/winit/LICENSE` | The window and input backend every target builds against; DeckCraft's Android mouse routing and primary-button dedupe live in `src/platform_impl/android/`, and the suite's other patches are listed in `third_party/winit/PATCHES.md` |
 
 ## Bundled through dependencies
 

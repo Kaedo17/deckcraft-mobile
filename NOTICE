@@ -87,6 +87,17 @@ Code dependencies
   licence is retained in licenses/pdf-writer/LICENSE-ICC.txt and exact files, sources
   and hashes are in ATTRIBUTION.md.
 
+- winit 0.30.13 is vendored at `third_party/winit` and used through `[patch.crates-io]`, so every
+  target builds this copy rather than the crates.io release. The copy is the Craft suite fork
+  `storytold/winit` (branch `craft/0.30.13`, base upstream tag `v0.30.13`, commit `e9809ef5`) at
+  commit `a517b3846`, plus DeckCraft's Android-backend delta. winit is Apache-2.0, copyright the
+  winit contributors (listed in `third_party/winit/Cargo.toml`); the upstream licence text is
+  retained unchanged in `third_party/winit/LICENSE`. The suite patches carried by the fork are
+  listed in `third_party/winit/PATCHES.md`; DeckCraft's own Android changes (mouse routing for
+  wheel, hover and the extra buttons, and the primary-button dedupe) are described in
+  `docs/architecture.md`, and are Android-only, so every other target compiles the fork's pinned
+  revision unchanged.
+
 
 egui icon font subset (dependency asset)
 ----------------------------------------

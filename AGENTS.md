@@ -149,6 +149,11 @@ People trust DeckCraft with their talks; a crash loses work. **This outranks fea
 - No `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`, `unimplemented!` in non-test
   code; no `unsafe` (`unsafe_code = "forbid"`). Every production crate root carries
   `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`.
+- **The repository's one named `unsafe` exception** is `apps/deckcraft-android/src/android_access.rs`:
+  JNI's raw JVM handles (`JavaVM::from_raw`, `JObject::from_raw`) have no safe spelling, and that
+  module hands out plain closures so the shared crates stay unsafe-free. Nothing else may use
+  `unsafe`, and an `unsafe impl Send`/`Sync` belongs only there. `#[unsafe(no_mangle)]` on
+  `android_main` is the edition-2024 spelling of a required export, not a licence for more `unsafe`.
 - Errors are `Result<T, E>` + `?`. Input-derived numbers (files, commands, MCP/control params) are
   hostile: `get()` not `[i]`, checked arithmetic, no NaN casts, capped allocations, bounded
   recursion.
