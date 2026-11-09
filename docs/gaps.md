@@ -1,6 +1,6 @@
 # Where DeckCraft falls short of PowerPoint
 
-> **Last reviewed:** 2026-10-30 · **Last updated:** 2026-11-09 · **Change:** trivial (Android's Platforms section: Browse answers PowerPoint's View dropdown with type glyphs, and glyphing instead of thumbnailing entries is recorded as a gap; the signed APK is built by `cargo xtask apk` (cargo-apk plus Back's activity glue, whose record binds over JNI), and Back dismissing a dialog is checked on a Tab S11; previous: trivial (Android port recorded as a Platforms section: its shortfalls are port gaps, not PowerPoint-parity gaps, so the ranked list and the parity scores are unchanged; previous: trivial (workflow-breaking regression fixed: Ctrl+C/X/V use the system clipboard again; #1414 to re-test on Windows; previous: trivial, run alternate language and reflection transforms survive saves; reused slide contents scale to the destination, picker thumbnails remain a gap; previous: trivial (locked No Fill and no-outline click-through regression coverage added; No Fill hit-testing follows resolved fill instead of the presence of a style (#1621); scores unchanged)) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
+> **Last reviewed:** 2026-10-30 · **Last updated:** 2026-11-09 · **Change:** trivial (Android's Platforms section: Browse answers PowerPoint's View dropdown with type glyphs, and glyphing instead of thumbnailing entries is recorded as a gap; the signed APK is built by `cargo xtask apk` (cargo-apk plus Back's activity glue, whose record binds over JNI), and Back dismissing a dialog is checked on a Tab S11; the signed APK is published by this fork's `android.yml` workflow when a release tag is pushed, since shared CI has no Android job yet ([craft-common-actions#183](https://github.com/storytold/craft-common-actions/issues/183)); previous: trivial (Android port recorded as a Platforms section: its shortfalls are port gaps, not PowerPoint-parity gaps, so the ranked list and the parity scores are unchanged; previous: trivial (workflow-breaking regression fixed: Ctrl+C/X/V use the system clipboard again; #1414 to re-test on Windows; previous: trivial, run alternate language and reflection transforms survive saves; reused slide contents scale to the destination, picker thumbnails remain a gap; previous: trivial (locked No Fill and no-outline click-through regression coverage added; No Fill hit-testing follows resolved fill instead of the presence of a style (#1621); scores unchanged)) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
 Every known shortfall, one entry each, ranked by how much it stops someone who presents with
 PowerPoint from switching. This is the work list: pick from the top. Numbers are summarized in
@@ -372,8 +372,11 @@ not in the ranked list above and they do not move the parity scores.
 
 - **Software-only video decode on Android**; no MediaCodec path. Same shortfall as the desktop
   hardware-decode entry above, and it costs frames on a tablet. 6–12 h.
-- **No store packaging and no in-app update check** on Android: the signed APK is built locally with
-  `cargo xtask apk --release` (cargo-apk plus the activity glue's dex) and a private keystore. No Google Play or F-Droid listing, and
+- **No store packaging and no in-app update check** on Android: the signed APK is built with `cargo
+  xtask apk --release` (cargo-apk plus the activity glue's dex) and a private keystore — locally, or
+  by this fork's `android.yml` when you push a release tag, because shared CI has no Android job yet
+  ([storytold/craft-common-actions#183](https://github.com/storytold/craft-common-actions/issues/183));
+  that workflow retires when the shared one builds Android. No Google Play or F-Droid listing, and
   `craft-update` is gated off Android, so an out-of-date install stays out of date until you rebuild
   it. 2–4 h for a listing plus an update check.
 - **Some finger behaviour is verified only by a person**: adb's `input tap`/`input swipe` inject

@@ -1,0 +1,220 @@
+name: Android release
+
+# Why this workflow lives in this repository: the shared release workflow
+# (storytold/craft-common-actions/.github/workflows/release.yml, used by release.yml here) builds
+# macOS, Windows, Linux, Flatpak, Arch, FreeBSD, web and server. It has no Android job, so nothing
+# uploads an APK and draft-release has nothing Android to collect. AGENTS.md says a workflow here
+# must not add jobs that no shared workflow runs, so the Android APK build and release are requested
+# upstream in https://github.com/storytold/craft-common-actions/issues/183, and this fork carries the
+# APK packaging until that job exists. Delete this file once the shared workflow builds Android:
+# the steps below are the job that issue asks for, and its inputs are the ones that issue proposes.
+#
+# It never runs on a push to main or on a pull request. The quality gates run there through ci.yml;
+# a tag is the release decision, so tagging builds and publishes the APK.
+on:
+  push:
+    tags: ["v*-android*"] # e.g. v0.15.0-android.1 — the fork's Android release convention
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version for a test run, e.g. 0.15.0-android.1 (empty: Cargo.toml + '-android.1')"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  # Keep identical to ci.yml and release.yml: the fonts embedded in the APK must be the reviewed set.
+  # A pin without the reviewed Chinese manifest fails the build (CRAFT_FONTS_REQUIRED) rather than
+  # silently dropping faces.
+  CRAFT_FONTS_REF: 37827adc41fd165f9a9234ac40f94dbad353aa69
+  # cargo-apk 0.10.0 packs the .so, manifest and resources. Pinned, so a published APK's packaging
+  # does not drift with a new cargo-apk release.
+  CARGO_APK_VERSION: "0.10.0"
+  # The entry crate compiles against API 36. cargo-apk only accepts an SDK platform inside the NDK's
+  # own range (NDK r29 stops at API 35, r30 reaches 37), so the platform and NDK below travel together.
+  ANDROID_API: "36"
+  ANDROID_NDK: "30.0.16248370"
+  ANDROID_BUILD_TOOLS: "36.0.2"
+
+jobs:
+  apk:
+    name: Build, sign and publish the arm64 APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the release version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          base="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          if [ -n "$INPUT_VERSION" ]; then
+            version="$INPUT_VERSION"
+          else
+            version="$base-android.1"
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "APK_NAME=deckcraft-v$version-android-arm64.apk" >> "$GITHUB_ENV"
+
+      - name: Check out craft-fonts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: storytold/craft-fonts
+          ref: ${{ env.CRAFT_FONTS_REF }}
+          path: craft-fonts
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: android-arm64-release
+
+      # The activity glue is compiled with javac, and the runner's default JDK varies. Pinning one
+      # keeps the glue's bytecode stable between releases; xtask finds javac through JAVA_HOME.
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install the Android SDK, NDK and build-tools
+        run: |
+          # The runner ships an SDK; use it when present, otherwise build one from Google's
+          # command-line tools (this URL is the tools' pinned revision, not a moving "latest").
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$sdk" ]; then
+            # The zip's top-level directory is itself called cmdline-tools, so it unpacks into a
+            # scratch dir and moves under cmdline-tools/latest, where sdkmanager lives.
+            sdk="$RUNNER_TEMP/android-sdk"
+            mkdir -p "$sdk/cmdline-tools"
+            curl -fsSL -o "$RUNNER_TEMP/cmdline-tools.zip" \
+              https://dl.google.com/android/repository/commandlinetools-linux-13156637_latest.zip
+            unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$RUNNER_TEMP/cmdline-tools"
+            mv "$RUNNER_TEMP/cmdline-tools/cmdline-tools" "$sdk/cmdline-tools/latest"
+          fi
+          manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$manager" ]; then
+            echo "::error::no sdkmanager under $sdk (cmdline-tools/latest/bin)"
+            exit 1
+          fi
+          yes | "$manager" --sdk_root="$sdk" --licenses > /dev/null
+          "$manager" --sdk_root="$sdk" --install \
+            "platforms;android-$ANDROID_API" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$ANDROID_NDK" > /dev/null
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$sdk/ndk/$ANDROID_NDK" >> "$GITHUB_ENV"
+          echo "SDK_TOOLS=$sdk/build-tools/$ANDROID_BUILD_TOOLS" >> "$GITHUB_ENV"
+
+      - name: Install cargo-apk
+        run: cargo install cargo-apk --locked --version "$CARGO_APK_VERSION"
+
+      - name: Load the release keystore
+        env:
+          # Secrets, so neither is echoed. A release APK must carry the owner's key: signing is the
+          # owner's decision, and an unsigned APK is not a release build, so this fails instead of
+          # falling back to Android's debug keystore.
+          KEYSTORE_B64: ${{ secrets.ANDROID_RELEASE_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error title=Release signing missing::ANDROID_RELEASE_KEYSTORE and ANDROID_RELEASE_KEYSTORE_PASSWORD are not set for this repository. Create a release keystore (README, Android section) and add both secrets; do not publish an unsigned APK."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/deckcraft-release.jks"
+          printf '%s' "$KEYSTORE_PASSWORD" > "$RUNNER_TEMP/keystore-pass"
+          echo "CARGO_APK_RELEASE_KEYSTORE=$RUNNER_TEMP/deckcraft-release.jks" >> "$GITHUB_ENV"
+
+      - name: Build the release APK
+        env:
+          CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
+          CRAFT_FONTS_REQUIRED: "1"
+          CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+        # cargo-apk alone compiles no Java, so Back would finish the activity and leave the
+        # presentation mid-dialog. xtask apk compiles DeckCraft's activity, adds classes.dex with
+        # aapt add -0 "" (Android only loads a stored dex), aligns, and re-signs, because adding a
+        # file voids cargo-apk's signature. It never echoes the signing command (AGENTS.md §10).
+        run: cargo xtask apk --release
+
+      - name: Check the APK is signed by the release key
+        run: |
+          # The published APK must carry the release certificate, not Android's debug key: a mismatch
+          # means the build resolved a different keystore than the one this repository is configured
+          # with, and every install over the existing app would be rejected as a signature conflict.
+          apk="target/release/apk/deckcraft.apk"
+          "$SDK_TOOLS/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/signer.txt"
+          got="$(grep 'certificate SHA-256 digest' "$RUNNER_TEMP/signer.txt" | sed 's/.*: //' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          # :file: keeps the store password out of the process arguments; keytool's -list prints the
+          # certificate's SHA-256 fingerprint, which is what apksigner reports for the signer.
+          want="$(keytool -list -keystore "$CARGO_APK_RELEASE_KEYSTORE" -storepass:file "$RUNNER_TEMP/keystore-pass" \
+            -alias deckcraft | sed -n 's/.*Certificate fingerprint (SHA-256): //p' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          if [ -z "$got" ] || [ -z "$want" ]; then
+            echo "::error title=Signing identity unreadable::no SHA-256 digest from the APK ($got) or no certificate fingerprint from the keystore ($want)"
+            exit 1
+          fi
+          if [ "$got" != "$want" ]; then
+            echo "::error title=Signing identity mismatch::APK digest $got is not the keystore certificate $want"
+            exit 1
+          fi
+          echo "Signed by the release key ($got)"
+
+      - name: Stage the artifact
+        run: |
+          mkdir -p staging
+          cp target/release/apk/deckcraft.apk "staging/$APK_NAME"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          # The name must start with release- so draft-release (shared) collects it, which is why
+          # this job exists before the shared workflow grows an Android job.
+          name: release-android-arm64
+          path: staging
+
+      - name: Draft the release
+        uses: storytold/craft-common-actions/actions/draft-release@main
+        with:
+          version: ${{ env.VERSION }}
+          app-title: DeckCraft for Android (arm64)
+          # Pre-release until a person checks the finger-only gestures, chords, mouse and audio on a
+          # device; CI can inject a mouse, but a finger is the only input that reaches Android's
+          # touch arbitration.
+          prerelease: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write the notes and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v$VERSION"
+          cat > notes.md <<EOF
+          DeckCraft for Android (arm64), \`v$VERSION\`, cut from [\`android/arm64-port\`](https://github.com/${GITHUB_REPOSITORY}/tree/android/arm64-port). Signed with the maintainer's release key (\`SHA256SUMS.txt\` lists the checksums).
+
+          **Pre-release:** the adb-driveable checks pass on a tablet; finger-only gestures, keyboard chords, mouse behaviour and slideshow audio still need a person's pass on a real device.
+
+          ## What it is
+          The desktop app on Android from a \`NativeActivity\` entry, with every file dialog served by DeckCraft's own browser (shared storage, app files, Recent), plus:
+
+          - **Back dismisses instead of leaving.** Android 13's own back dispatcher finishes \`NativeActivity\` before the app sees the gesture; DeckCraft's activity registers the back callback, records the gesture over JNI and answers it as Escape, so a dialog, menu or cancellation closes and the presentation stays in the foreground. Home still leaves.
+          - **Browse answers PowerPoint's View dropdown:** List and Small/Medium/Large icons, remembered for the next dialog. Entries carry type glyphs rather than thumbnails.
+
+          ## Checked on a device from CI-style input (adb, mouse-emulating)
+          These checks ran on a Samsung tablet against this commit; the debug build there is the same code, and the release APK differs only in build profile and signing key. Options ▸ Preferences opens; Back dismisses it with DeckCraft still foreground; the header's close glyph dismisses it; Interface size 50% renders the whole card at half its width; Browse opens, Up one level and folder navigation work; the View dropdown lists four entries; Large icons changes the listing and Back dismisses the browser leaving Open behind it; the chosen view survives reopening the browser. The release APK itself is signature-verified here but has not been installed: it needs a different signing key than the debug build on the tablet, so upgrading means uninstalling that install first.
+
+          ## Needs a person
+          Finger pan, a still hold opening the canvas menu, hold-then-drag selection, drag-to-scroll in panels, Ctrl+S/Ctrl+Z, mouse hover/wheel/right-click and audio: \`adb input\` reports as a mouse, and injecting on the device's own touchscreen delivers nothing to the app.
+
+          ## Install
+          Android 10 (API 28) or newer, arm64 only: \`adb install deckcraft-v$VERSION-android-arm64.apk\`, or sideload the APK. Uninstall a debug build first — a different signing key cannot upgrade it.
+          EOF
+          gh release edit "$tag" --title "DeckCraft for Android (arm64) — $VERSION" --notes-file notes.md
+          # Publishing here because pushing the tag is the release decision; nothing runs on main.
+          gh release edit "$tag" --draft=false
