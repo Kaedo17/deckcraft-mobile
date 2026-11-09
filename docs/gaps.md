@@ -1,6 +1,6 @@
 # Where DeckCraft falls short of PowerPoint
 
-> **Last reviewed:** 2026-10-30 · **Last updated:** 2026-11-08 · **Change:** trivial (Android port recorded as a Platforms section: its shortfalls are port gaps, not PowerPoint-parity gaps, so the ranked list and the parity scores are unchanged; previous: trivial (workflow-breaking regression fixed: Ctrl+C/X/V use the system clipboard again; #1414 to re-test on Windows; previous: trivial, run alternate language and reflection transforms survive saves; reused slide contents scale to the destination, picker thumbnails remain a gap; previous: trivial (locked No Fill and no-outline click-through regression coverage added; No Fill hit-testing follows resolved fill instead of the presence of a style (#1621); scores unchanged)) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
+> **Last reviewed:** 2026-10-30 · **Last updated:** 2026-11-09 · **Change:** trivial (Android's Platforms section: the signed APK is built by `cargo xtask apk` (cargo-apk plus Back's activity glue, whose record binds over JNI), Back dismissing a dialog is checked on a Tab S11, and finger-only behaviours are recorded as an owner-pass item because adb cannot inject a finger; previous: trivial (Android port recorded as a Platforms section: its shortfalls are port gaps, not PowerPoint-parity gaps, so the ranked list and the parity scores are unchanged; previous: trivial (workflow-breaking regression fixed: Ctrl+C/X/V use the system clipboard again; #1414 to re-test on Windows; previous: trivial, run alternate language and reflection transforms survive saves; reused slide contents scale to the destination, picker thumbnails remain a gap; previous: trivial (locked No Fill and no-outline click-through regression coverage added; No Fill hit-testing follows resolved fill instead of the presence of a style (#1621); scores unchanged)) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
 Every known shortfall, one entry each, ranked by how much it stops someone who presents with
 PowerPoint from switching. This is the work list: pick from the top. Numbers are summarized in
@@ -373,9 +373,15 @@ not in the ranked list above and they do not move the parity scores.
 - **Software-only video decode on Android**; no MediaCodec path. Same shortfall as the desktop
   hardware-decode entry above, and it costs frames on a tablet. 6–12 h.
 - **No store packaging and no in-app update check** on Android: the signed APK is built locally with
-  `cargo apk build --release` and a private keystore. No Google Play or F-Droid listing, and
+  `cargo xtask apk --release` (cargo-apk plus the activity glue's dex) and a private keystore. No Google Play or F-Droid listing, and
   `craft-update` is gated off Android, so an out-of-date install stays out of date until you rebuild
   it. 2–4 h for a listing plus an update check.
+- **Some finger behaviour is verified only by a person**: adb's `input tap`/`input swipe` inject
+  through a virtual device that DeckCraft reads as a mouse, and injecting on the tablet's own
+  touchscreen with `input -d` delivers nothing at all, so a finger drag, a hold that pauses before
+  moving (the canvas's 0.55 s verdict) and a hold-then-drag selection cannot be driven from a
+  development machine. Chords, mouse hover, wheel and right-click need a keyboard and mouse attached.
+  The on-device pass is the owner's, on a real finger.
 - **Shared storage only behind Android's "All files access" grant**; Android 10 targets scoped
   storage, so nothing outside the app is offered there at all. Android's design, not a bug.
 - **Clipboard text only**: `arboard` has no Android backend, so an image copied elsewhere cannot be
@@ -390,6 +396,7 @@ not in the ranked list above and they do not move the parity scores.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-09 | trivial | Android's Platforms section: the release APK is built by `cargo xtask apk` (cargo-apk plus the activity glue's dex, which registers Android's back callback and records Back for DeckCraft's loop, bound over JNI because JNI's name lookup cannot see a library the framework loaded), and Back dismissing a dialog is checked on a Tab S11; a new entry notes that finger drags, holds and hold-then-drag selections can only be checked by a person on a real finger — adb injects a mouse, and `input -d` on the tablet's own touchscreen delivers nothing. Ranked list and parity scores unchanged |
 | 2026-11-08 | trivial | Android port shortfalls recorded as a Platforms section (software-only decode, no store package or update check, shared storage behind the grant, clipboard text only, no single-instance forwarding, print and photo album unchanged). Not PowerPoint gaps: ranked list and scores unchanged |
 | 2026-11-02 | trivial | Run alternate-language metadata now survives native and PPTX saves; UI and proofing gaps remain; scores unchanged |
 | 2026-11-02 | trivial | PPTX reflection geometry is retained through native and PPTX resaves; no rendering parity claim |

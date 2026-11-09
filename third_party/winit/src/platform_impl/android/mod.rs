@@ -456,9 +456,11 @@ impl<T: 'static> EventLoop<T> {
                         input_status = InputStatus::Unhandled
                     },
                     keycode => {
-                        // BACK has no egui equivalent (see `primary_button::back_to_escape`):
-                        // answer Escape so BACK dismisses dialogs, menus and cancellations, and
-                        // consume the event so the activity never goes to the background (Home does).
+                        // BACK has no egui equivalent (see `primary_button::back_to_escape`): answer
+                        // Escape so BACK dismisses dialogs, menus and cancellations, and consume the
+                        // event so the activity never goes to the background (Home does). DeckCraft's
+                        // activity normally answers BACK before it gets here; this is the fallback for
+                        // a BACK that reaches the queue.
                         if let Some(pressed) = primary_button::back_to_escape(u32::from(keycode) as i32, matches!(key.action(), KeyAction::Down)) {
                             let event = event::Event::WindowEvent {
                                 window_id: window::WindowId(WindowId),

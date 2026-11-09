@@ -66,8 +66,23 @@ label = "DeckCraft"
 theme = "@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
 # The mipmap tree above: Android picks the right density for the launcher.
 icon = "@mipmap/ic_launcher"
+# cargo-apk writes `android:hasCode="false"`, which tells Android the APK carries no Java code: the
+# activity's class loader then gets an empty dex path list, and the activity `cargo xtask apk` packs
+# into classes.dex cannot be instantiated (`ClassNotFoundException`, `DexPathList[[]]`). The APK does
+# carry code — the Back answer — so this says so.
+has_code = true
 
 [package.metadata.android.application.activity]
+# DeckCraft's own activity, not plain `android.app.NativeActivity`: NativeActivity registers no back
+# callback, and from Android 13 the window's own back dispatcher decides Back before any key event
+# reaches the app, so Back finished the activity and left a presentation in the background with a
+# dialog still open. `DeckCraftActivity` (apps/deckcraft-android/java/, the repository's one
+# exception to Rust-only apps — AGENTS.md §4) registers Android's back callback, answers the legacy
+# Back key, and records the gesture through the activity's native library; DeckCraft's loop answers
+# it as Escape, which dismisses a dialog, menu or cancellation on every host. `cargo xtask apk`
+# compiles it into classes.dex; `cargo apk build` alone names this activity but ships no dex, so
+# Android falls back to its own back handling.
+name = ".DeckCraftActivity"
 # Every configuration change the activity handles itself instead of a restart (the same list the
 # other Craft apps' Android builds use): the window, the documents and the app survive rotating
 # the device, folding and unfolding it, a theme switch, a font-scale change, a different keyboard

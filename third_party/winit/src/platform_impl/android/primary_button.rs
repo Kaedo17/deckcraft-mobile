@@ -40,11 +40,16 @@ impl Reported {
     }
 }
 
-/// Android's hardware and gesture Back report `KEYCODE_BACK` (4), and android-activity 0.6
-/// never delivers a `MainEvent::AppBack`, so the key reaches winit only as a raw code. The app
-/// treats Escape as "dismiss this" (dialogs, menus, cancellation), so BACK is answered as Escape
-/// at this boundary — and the dispatch stays `Handled`, so BACK never backgrounds the activity
-/// (Home does).
+/// Android's hardware and gesture Back report `KEYCODE_BACK` (4), and android-activity 0.6 never
+/// delivers a `MainEvent::AppBack`. `android.app.NativeActivity` registers no back callback either,
+/// so from Android 13 the window's own back dispatcher decides BACK and finishes the activity: the
+/// primary answer is DeckCraft's activity (`apps/deckcraft-android/java/…/DeckCraftActivity.java`,
+/// compiled into `classes.dex` by `cargo xtask apk`), which registers that callback and records the
+/// gesture for DeckCraft's loop, where it is answered as Escape. This covers the BACK that does
+/// reach the native queue — a build without the dex, or a device that routes the key to the queue
+/// first. The app treats Escape as "dismiss this" (dialogs, menus, cancellation), so BACK is
+/// answered as Escape here too, and the dispatch stays `Handled`, so this path never backgrounds the
+/// activity (Home does).
 pub const KEYCODE_BACK: i32 = 4;
 
 /// When `key_code` is Android's BACK key, the pressed state of the Escape to synthesize.

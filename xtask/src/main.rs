@@ -3,6 +3,7 @@
 //! Pure Rust (std + serde_json). External tools (`cargo`, `curl`, `tar`) are
 //! invoked through `std::process::Command`.
 
+mod apk;
 mod assets;
 mod bench;
 mod ico;
@@ -36,6 +37,11 @@ commands:
                   pack square PNGs (<= 256 px) into a Windows .ico (see packaging/icons.sh)
   mipmaps         render Android's launcher icons (five densities) from the app icon into
                   apps/deckcraft-android/res/mipmap-*/ic_launcher.png
+  apk [--release] [--install <serial>]
+                  build the Android APK and add its Java activity glue, so Back answers Escape
+                  instead of leaving the presentation: cargo apk build, then javac + d8 + aapt +
+                  zipalign + apksigner. Needs ANDROID_HOME and a JDK's javac. --install installs it
+                  on the device adb sees (pass its serial when more than one is attached)
 ";
 
 fn main() -> ExitCode {
@@ -43,6 +49,7 @@ fn main() -> ExitCode {
     let rest: Vec<&str> = args.iter().skip(1).map(String::as_str).collect();
     let result = match args.first().map(String::as_str) {
         Some("assets") => assets::run(&root()),
+        Some("apk") => apk::run(&root(), &rest),
         Some("layers") => cmd_layers(),
         Some("pdf-deps") => pdf_deps::run(&root()),
         Some("wasm") => cmd_wasm(),

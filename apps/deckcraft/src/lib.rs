@@ -48,12 +48,31 @@ struct App {
     /// Files opened from Finder and quit requests (see `apple_events`).
     #[cfg(target_os = "macos")]
     events: fmv_macos_events::Inbox,
+    /// Android's Back, recorded by the activity's back callback (see [`BackPoll`]).
+    #[cfg(target_os = "android")]
+    back: Option<BackPoll>,
 }
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         #[cfg(target_os = "macos")]
         apple_events::poll(&self.events, &mut self.inner, ctx);
+        // Android's Back: answer Escape, so a dialog, menu or cancellation dismisses and the app
+        // stays foreground. The activity already consumed the gesture, so nothing here finishes the
+        // activity; Home still leaves. Queued as raw input, exactly as the control channel queues a
+        // key (`deckcraft_ui_egui::control`), so the same handling runs as a real Escape key.
+        #[cfg(target_os = "android")]
+        if self.back.as_ref().is_some_and(|back| back()) {
+            for pressed in [true, false] {
+                self.inner.queue_input(egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            }
+        }
         self.inner.logic(ctx);
     }
     /// Forward native raw input to the wrapped application once per pass.
@@ -254,10 +273,19 @@ pub struct SharedStorageAccess {
     pub ask: std::sync::Arc<dyn Fn() + Send + Sync>,
 }
 
+/// Whether Android's Back has been asked for since the last pass, as a plain closure handed to the
+/// app by the entry crate's JNI (`apps/deckcraft-android/src/android_access.rs`). Android's own back
+/// dispatcher answers Back before any key event reaches the app — `NativeActivity` registers no
+/// callback — so the activity registers one and records it here; the app answers it as Escape, which
+/// dismisses a dialog, a menu or a cancellation on every host. `None` on desktop, where Back is not
+/// a thing the window gets.
+#[cfg(target_os = "android")]
+pub type BackPoll = std::sync::Arc<dyn Fn() -> bool + Send + Sync>;
+
 pub fn run() -> eframe::Result {
     #[cfg(target_os = "android")]
     {
-        run_inner(None, None)
+        run_inner(None, None, None)
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -268,8 +296,8 @@ pub fn run() -> eframe::Result {
 /// Android's entry: like [`run`], but with the activity's handle, which eframe's Android event
 /// loop cannot be created without — leaving it out ends the activity as soon as it starts.
 #[cfg(target_os = "android")]
-pub fn run_android(android_app: android_activity::AndroidApp, access: Option<SharedStorageAccess>) -> eframe::Result {
-    run_inner(Some(android_app), access)
+pub fn run_android(android_app: android_activity::AndroidApp, access: Option<SharedStorageAccess>, back: Option<BackPoll>) -> eframe::Result {
+    run_inner(Some(android_app), access, back)
 }
 
 /// Install logging, read the command line (desktop) or launch the default way (Android), then
@@ -277,6 +305,7 @@ pub fn run_android(android_app: android_activity::AndroidApp, access: Option<Sha
 fn run_inner(
     #[cfg(target_os = "android")] android_app: Option<android_activity::AndroidApp>,
     #[cfg(target_os = "android")] access: Option<SharedStorageAccess>,
+    #[cfg(target_os = "android")] back: Option<BackPoll>,
 ) -> eframe::Result {
     // First, so every start-up record (and the engine's panic hook, installed with the first
     // Session) is captured; see `logging`.
@@ -455,6 +484,8 @@ fn run_inner(
                 inner: app,
                 #[cfg(target_os = "macos")]
                 events: apple_events.connect(&cc.egui_ctx),
+                #[cfg(target_os = "android")]
+                back,
             }))
         }),
     )
@@ -473,6 +504,8 @@ mod tests {
                 inner: SlideApp::new(Session::new(), Services::default()),
                 #[cfg(target_os = "macos")]
                 events: fmv_macos_events::Inbox::default(),
+                #[cfg(target_os = "android")]
+                back: None,
             };
             println!("calling on_exit");
             eframe::App::on_exit(&mut app);

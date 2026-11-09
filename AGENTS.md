@@ -150,8 +150,10 @@ People trust DeckCraft with their talks; a crash loses work. **This outranks fea
   code; no `unsafe` (`unsafe_code = "forbid"`). Every production crate root carries
   `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`.
 - **The repository's one named `unsafe` exception** is `apps/deckcraft-android/src/android_access.rs`:
-  JNI's raw JVM handles (`JavaVM::from_raw`, `JObject::from_raw`) have no safe spelling, and that
-  module hands out plain closures so the shared crates stay unsafe-free. Nothing else may use
+  JNI's raw JVM handles (`JavaVM::from_raw`, `JObject::from_raw`) and the environment's own function
+  table have no safe spelling, and that module hands out plain closures so the shared crates stay
+  unsafe-free. It also binds Android's Back (`backInvoked`) to the activity's own class and records
+  the gesture, which only reads a flag. Nothing else may use
   `unsafe`, and an `unsafe impl Send`/`Sync` belongs only there. `#[unsafe(no_mangle)]` on
   `android_main` is the edition-2024 spelling of a required export, not a licence for more `unsafe`.
 - Errors are `Result<T, E>` + `?`. Input-derived numbers (files, commands, MCP/control params) are
@@ -182,6 +184,17 @@ People trust DeckCraft with their talks; a crash loses work. **This outranks fea
   CLI, control channel and MCP do exactly the same thing.
 - **The UI is thin**: panels read engine state and act through commands. Colours come from theme
   tokens. **Never use Tauri**; egui only.
+- **Android's Java activity glue is the repository's one exception to Rust-only native apps**
+  (house rule §4 of the Rust block above): `apps/deckcraft-android/java/ai/storyteller/deckcraft/DeckCraftActivity.java`
+  extends `android.app.NativeActivity` and answers Back. `NativeActivity` registers no back callback,
+  and from Android 13 the window's own back dispatcher decides Back before any key event reaches the
+  app, so it finished the activity mid-dialog on the tablet. The class registers Android's back
+  callback (Android 13+) and answers the legacy Back key (Android 12 and below), and records the
+  gesture by calling the activity's own native library (`backInvoked`, bound to the activity's class
+  at start-up over JNI in `android_access.rs`); DeckCraft's loop takes that record and answers Escape,
+  which dismisses a dialog, a menu or a cancellation on every host. It is platform glue, not app logic:
+  one class, no state, no presentation decision, and it never calls `finish`. `cargo xtask apk` compiles
+  it into the APK's `classes.dex`; everything else in a native app stays Rust.
 - **Never break wasm** (`cargo xtask wasm`).
 
 ## 5. Quality gates (before every commit)

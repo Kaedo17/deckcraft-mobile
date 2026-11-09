@@ -130,8 +130,9 @@ export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/<revision>   # see the note below
 export CARGO_APK_RELEASE_KEYSTORE=/path/to/deckcraft-release.jks   # release builds only
 export CARGO_APK_RELEASE_KEYSTORE_PASSWORD=...
 
-cargo apk build -p deckcraft-android              # debug APK -> target/debug/apk/
-cargo apk build -p deckcraft-android --release    # signed APK -> target/release/apk/
+cargo xtask apk                                   # debug APK -> target/debug/apk/
+cargo xtask apk --release                         # signed APK -> target/release/apk/
+cargo xtask apk --install <device serial>         # build and install on a device
 ```
 
 `cargo apk` runs cargo inside the NDK environment, so the C dependencies build with the NDK's clang.
@@ -141,6 +142,18 @@ newer. The release keystore is yours, kept outside the repository: `keytool -gen
 deckcraft-release.jks -alias deckcraft -keyalg RSA -keysize 4096`, where cargo-apk requires the key
 password to equal the store password. Fonts come from `../craft-fonts` as above, and the launcher icon
 is rendered by `cargo xtask mipmaps`.
+
+`cargo xtask apk` does all of that and adds the APK's Java activity glue on top: Android's
+`android.app.NativeActivity` registers no back callback, so from Android 13 Android's own back
+dispatcher decides Back and leaves the presentation mid-dialog.
+`apps/deckcraft-android/java/…/DeckCraftActivity.java` registers that callback and records the gesture
+for DeckCraft's loop, which answers it as Escape — the same dismissal a dialog, menu or cancellation
+gets on every other host. The step compiles it with `javac` (from a JDK — set `JAVAC` or `JAVA_HOME`
+if it is not on `PATH`), turns it into `classes.dex` with the SDK's `d8`, and re-signs the APK, because
+adding a file voids cargo-apk's signature. The entry crate sets `has_code = true`: cargo-apk's default
+`android:hasCode="false"` tells Android the APK carries no Java code, so the dex would never be
+loaded. `cargo apk build` on its own still works and produces an APK without that answer, so use
+`cargo xtask apk` for anything that goes to a device.
 
 Each [GitHub release](https://github.com/storytold/deckcraft/releases) has ready-made builds, on Linux as
 an AppImage, a `.deb`, an `.rpm` and a tarball. On Gentoo, the community [::snakebyte

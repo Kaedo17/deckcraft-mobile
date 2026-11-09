@@ -30,15 +30,28 @@ mod android_access;
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub fn android_main(app: android_activity::AndroidApp) {
-    // The "All files access" grant, checked and requested over JNI — this crate's one unsafe
-    // stays in `android_access`; the app only ever sees the plain closures built here.
-    let shared = android_access::capture(&app).map(|a| deckcraft::SharedStorageAccess {
+    // The "All files access" grant, checked and requested over JNI, and Back's record bound to the
+    // activity's class over JNI — this crate's one unsafe stays in `android_access`; the app only
+    // ever sees the plain closures built here.
+    let access = android_access::capture(&app);
+    // Bind before the loop starts, so no gesture can arrive against an unbound method. Android's
+    // own JNI name lookup cannot find this library from the app's class loader, so it is registered
+    // explicitly; if that fails the activity catches the call rather than crashing the presentation.
+    if let Some(a) = access {
+        android_access::register_back(a);
+    }
+    let shared = access.map(|a| deckcraft::SharedStorageAccess {
         granted: std::sync::Arc::new(move || a.shared_storage_granted()),
         ask: std::sync::Arc::new(move || {
             a.ask_shared_storage_grant();
         }),
     });
-    if let Err(e) = deckcraft::run_android(app, shared) {
+    // Android's Back, recorded by DeckCraft's activity's back callback (`android_access::record_back`
+    // over JNI): Android answers Back itself before any key event reaches the app, so the activity
+    // consumes it and notes it here; the app answers Escape, which dismisses a dialog, a menu or a
+    // cancellation, and the activity stays foreground. Home still leaves.
+    let back = std::sync::Arc::new(android_access::take_back as fn() -> bool);
+    if let Err(e) = deckcraft::run_android(app, shared, Some(back)) {
         log::error!("deckcraft exited with an error: {e}");
     }
 }

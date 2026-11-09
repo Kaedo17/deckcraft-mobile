@@ -15,16 +15,83 @@
 //! never a panic, which this crate's lints deny too.
 //!
 //! This is the entry crate's one piece of real `unsafe`: `jni`'s entry points to the activity's
-//! raw JVM (`JavaVM::from_raw`, `JObject::from_raw`) have no safe form, which is why AGENTS.md
-//! (Never crash) names this file as the workspace's `unsafe` exception and confines it here —
-//! the module holds the pointers, never lets them leave, and hands `deckcraft::SharedStorageAccess`
-//! plain closures, so the shared app crates stay unsafe-free. `docs/architecture.md` records the
-//! exception.
+//! raw JVM (`JavaVM::from_raw`, `JObject::from_raw`, and the environment's own function table) have
+//! no safe form, which is why AGENTS.md (Never crash) names this file as the workspace's `unsafe`
+//! exception and confines it here — the module holds the pointers, never lets them leave, and hands
+//! `deckcraft::SharedStorageAccess` plain closures, so the shared app crates stay unsafe-free.
+//! `docs/architecture.md` records the exception.
+//!
+//! The same module also records Android's Back (`backInvoked` below), which arrives over JNI from
+//! DeckCraft's activity: Android's back dispatcher answers Back before the app can see a key event,
+//! so the activity registers a callback and this notes it — binding that callback to this library is
+//! the part JNI's name lookup cannot do on its own. That is all it does with the presentation:
+//! DeckCraft's own loop answers the recorded Back as Escape (`apps/deckcraft/src/lib.rs`).
 
 #![allow(unsafe_code)] // the named exception above: jni's raw JVM handles have no safe spelling
 
-use jni::objects::{JObject, JValue};
+use jni::objects::{JClass, JObject, JValue};
 use jni::{JNIEnv, JavaVM};
+use std::ffi::{c_char, c_void};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Back, recorded by DeckCraft's activity. Android's own back dispatcher answers Back *before* any
+/// key event reaches the app (`NativeActivity` registers no callback), so the activity registers one
+/// and its callback calls the static native method below. Recording is all that happens here: the
+/// app's loop takes it (`take_back`) and answers Escape on its own thread, which is what dismisses a
+/// dialog, a menu or a cancellation. Nothing in this path touches the presentation directly.
+static BACK_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// The native half of `DeckCraftActivity.backInvoked()`: recording the gesture is all it does.
+/// Bound to the activity's class by [`register_back`], not found by JNI's name lookup (see there).
+extern "C" fn record_back(_env: JNIEnv<'static>, _class: JClass<'static>) {
+    BACK_REQUESTED.store(true, Ordering::Relaxed);
+}
+
+/// Take the recorded Back: one dismissal per Back, so repeated frames cannot dismiss twice.
+pub fn take_back() -> bool {
+    BACK_REQUESTED.swap(false, Ordering::Relaxed)
+}
+
+/// Bind [`record_back`] to `DeckCraftActivity.backInvoked()` on the activity's own class.
+///
+/// JNI's usual name-based lookup cannot find this library's symbol: `NativeActivity` loads the
+/// library from framework code, so it lands in the framework's class-loader namespace while
+/// `DeckCraftActivity` comes from the app's loader, and the JVM searches only the loader that
+/// defined the class. On a Tab S11 the callback then threw `UnsatisfiedLinkError`, Android reported
+/// it through the activity's message queue, and the process died mid-dialog — the very crash this
+/// arc is meant to remove. Registering against the class the activity is an instance of is the
+/// spelling that reaches it, and it needs no exported symbol.
+///
+/// Called once at start-up, before any gesture can arrive. Returns whether the binding exists; the
+/// activity catches the failure rather than letting an unbound call crash the presentation.
+pub fn register_back(access: AndroidAccess) -> bool {
+    let bound = access.with_env(|env| -> jni::errors::Result<bool> {
+        let class = env.get_object_class(access.activity())?;
+        // The names are static strings the JVM copies, and `record_back` lives in this library for
+        // as long as the app does, so the registration stays valid until the activity is destroyed.
+        let methods = [jni::sys::JNINativeMethod {
+            name: b"backInvoked\0".as_ptr() as *mut c_char,
+            signature: b"()V\0".as_ptr() as *mut c_char,
+            fnPtr: record_back as *mut c_void,
+        }];
+        // SAFETY: `env` is the live environment of this attached thread, `class` is the activity's
+        // own class, and the function table entry is the JVM's own — the pointers are valid for the
+        // whole call, and the entries the JVM copies stay valid while the library is loaded.
+        let rc = unsafe {
+            let raw = env.get_raw();
+            let table = &*(*raw as *const jni::sys::JNINativeInterface_);
+            match table.RegisterNatives {
+                Some(register) => register(raw, class.as_raw(), methods.as_ptr(), methods.len() as i32),
+                None => -1,
+            }
+        };
+        Ok(rc == 0)
+    });
+    if !bound.unwrap_or(false) {
+        log::warn!("android access: could not bind DeckCraftActivity.backInvoked; Android answers Back itself and the activity leaves");
+    }
+    bound.unwrap_or(false)
+}
 
 /// The app's package, as the manifest declares it (the settings intent's URI names it).
 const PACKAGE: &str = "ai.storyteller.deckcraft";
