@@ -321,7 +321,9 @@ adb install deckcraft-<ver>-android-arm64.apk
 Android has no system file picker, so every Open, Save As, Import and Export is answered by DeckCraft's
 built-in browser over the app's own storage (`files/Documents/`); *Shared storage* (`/storage/emulated/0`)
 appears only once you grant **All files access** in Android's settings, and Android 10 stays inside app
-storage. **Back** dismisses a dialog or menu instead of leaving the app (**Home** leaves it). Interface
+storage. The browser carries PowerPoint's **View** dropdown — List, Small, Medium and Large icons — and
+draws each entry with its own type glyph rather than a thumbnail. **Back** dismisses a dialog or menu
+instead of leaving the app (**Home** leaves it). Interface
 size runs down to 50%, which is what a landscape tablet wants; scroll bars widen to a fingertip band once
 a finger has been seen, a finger drag pans the canvas and scrolls panels, and a hold of about half a
 second then a drag picks a slide up to reorder it.

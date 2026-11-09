@@ -27,6 +27,113 @@ const MAX_LISTED: usize = 5000;
 const MAX_SCANNED: usize = 100_000;
 const ROW: f32 = 24.0;
 
+/// The listing's view, as PowerPoint's file dialog View dropdown: a list of names, or a grid of
+/// icons at three sizes. The icon is the entry's type glyph, drawn in code — the browser never
+/// reads a file, so a thumbnail is not on offer here (see AGENTS.md §2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PickerView {
+    List,
+    Small,
+    Medium,
+    Large,
+}
+
+/// One cell of the listing: how many columns fit, the width each gets, the row's height, the
+/// glyph's edge and the name's font size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Cell {
+    pub(crate) cols: usize,
+    pub(crate) width: f32,
+    pub(crate) height: f32,
+    pub(crate) glyph: f32,
+    pub(crate) label: f32,
+}
+
+impl PickerView {
+    /// Every view, in the order the dropdown lists them.
+    pub(crate) const ALL: [PickerView; 4] = [PickerView::List, PickerView::Small, PickerView::Medium, PickerView::Large];
+
+    /// The dropdown's label, as PowerPoint's reads.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            PickerView::List => "List",
+            PickerView::Small => "Small icons",
+            PickerView::Medium => "Medium icons",
+            PickerView::Large => "Large icons",
+        }
+    }
+
+    /// The name persisted in `ui.json` (`pickerView`).
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            PickerView::List => "list",
+            PickerView::Small => "small",
+            PickerView::Medium => "medium",
+            PickerView::Large => "large",
+        }
+    }
+
+    /// The persisted name as a view: anything else (a hand-edited or damaged `ui.json`) is List.
+    pub(crate) fn from_name(s: &str) -> PickerView {
+        match s {
+            "small" => PickerView::Small,
+            "medium" => PickerView::Medium,
+            "large" => PickerView::Large,
+            _ => PickerView::List,
+        }
+    }
+
+    /// The cell for a listing `width` wide. A list is one column of 24-point rows; the icon views
+    /// fit as many columns as their base cell width allows, at least one, and split the width
+    /// evenly. A width that isn't usable gives one column, so a damaged layout can't divide by
+    /// zero or ask for a million columns.
+    pub(crate) fn cell(self, width: f32) -> Cell {
+        let (base, height, glyph, label) = match self {
+            PickerView::List => (width.max(ROW), ROW, 18.0, 13.0),
+            PickerView::Small => (120.0, 48.0, 24.0, 11.0),
+            PickerView::Medium => (144.0, 66.0, 40.0, 12.0),
+            PickerView::Large => (190.0, 96.0, 64.0, 13.0),
+        };
+        let cols = if matches!(self, PickerView::List) {
+            1
+        } else if width.is_finite() && width >= base {
+            (width / base) as usize
+        } else {
+            1
+        };
+        Cell { cols, width: width / cols as f32, height, glyph, label }
+    }
+
+    /// Rows the listing of `n` entries needs in this view.
+    pub(crate) fn rows(self, n: usize, width: f32) -> usize {
+        let cols = self.cell(width).cols.max(1);
+        n.div_ceil(cols)
+    }
+}
+
+/// The glyph for an entry: a folder, or the file's type by its extension (any case). Every glyph
+/// is one of DeckCraft's own icons (`crates/ui-egui/src/icons`), so no vendor artwork is involved.
+pub(crate) fn type_glyph(dir: bool, path: &Path) -> icons::Icon {
+    if dir {
+        return icons::Icon::Folder;
+    }
+    let Some(ext) = path.extension().and_then(std::ffi::OsStr::to_str) else { return icons::Icon::File };
+    let ext = ext.to_lowercase();
+    match ext.as_str() {
+        // Presentations, including the outline text a presentation can be made from.
+        "deckcraft" | "slidecraft" | "pptx" | "ppt" | "potx" | "pot" | "ppsx" | "pps" | "txt" | "md" => icons::Icon::Slide,
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "heic" | "heif" | "svg" => icons::Icon::Image,
+        "mp4" | "m4v" | "mov" | "webm" | "mkv" | "wmv" | "avi" => icons::Icon::Video,
+        "wav" | "mp3" | "m4a" | "m4b" | "aac" | "flac" | "ogg" | "oga" | "opus" | "aif" | "aiff" | "aifc" | "caf" | "wma" | "weba" | "mka" => {
+            icons::Icon::Audio
+        }
+        "thmx" => icons::Icon::Themes,
+        "ttf" | "otf" | "woff" | "woff2" => icons::Icon::Fonts,
+        "csv" | "xlsx" | "xls" => icons::Icon::Table,
+        _ => icons::Icon::File,
+    }
+}
+
 /// The browser while it is open, the folder it showed last (where it opens next time), and the
 /// answer waiting to be applied by the next logic pass.
 #[derive(Default)]
@@ -226,6 +333,11 @@ pub(crate) struct FileBrowser {
     /// The highlighted entry.
     pub(crate) selected: Option<PathBuf>,
     pub(crate) note: Note,
+    /// The listing's view, remembered in `ui.json` as `pickerView`.
+    pub(crate) view: PickerView,
+    /// Whether the person chose a view in this browser: the remembered view is then not applied
+    /// over their choice, and the choice is written back to `ui.json`.
+    pub(crate) view_dirty: bool,
     focus_name: bool,
 }
 
@@ -248,6 +360,8 @@ impl FileBrowser {
             listing: Ok(Listing::default()),
             selected: None,
             note: Note::None,
+            view: PickerView::List,
+            view_dirty: false,
             focus_name: true,
         };
         b.navigate(start);
@@ -413,6 +527,10 @@ pub(crate) fn show(app: &mut SlideApp, ctx: &egui::Context) {
     let title = b.request.title().to_string();
     let mut done: Option<Option<PathBuf>> = None;
     let mut open = true;
+    // The view remembered in `ui.json`, unless the person already chose one in this browser.
+    if !b.view_dirty {
+        b.view = PickerView::from_name(&app.ui.picker_view);
+    }
     egui::Window::new(title)
         .id(egui::Id::unique(("builtin_file_browser",)))
         .collapsible(false)
@@ -427,7 +545,12 @@ pub(crate) fn show(app: &mut SlideApp, ctx: &egui::Context) {
     if !open {
         done = Some(None);
     }
+    let chosen = b.view_dirty.then(|| b.view.name().to_string());
     app.file_browser.open = Some(b);
+    if let Some(name) = chosen {
+        // The next dialog opens in the view this one was browsed in.
+        app.ui.picker_view = name;
+    }
     if let Some(answer) = done {
         close(app, answer);
     }
@@ -486,12 +609,16 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens, services: &crate::Services
         let entries: &[Entry] = b.listing.as_ref().map(|l| l.entries.as_slice()).unwrap_or(&[]);
         // An unreadable folder has its own message below; the hint is for a listing that came back empty.
         let listed = b.listing.is_ok();
+        // The view decides the layout: one column of rows, or a grid of icon cells that fit the width.
+        let cell = b.view.cell(ui.available_width());
+        let cols = cell.cols.max(1);
+        let rows = b.view.rows(entries.len(), ui.available_width());
         crate::widgets::panel_scroll(egui::ScrollArea::vertical())
             .id_salt("builtin_file_browser_list")
             .max_height(300.0)
             .min_scrolled_height(300.0)
             .auto_shrink([false, false])
-            .show_rows(ui, ROW, entries.len(), |ui, range| {
+            .show_rows(ui, cell.height, rows, |ui, range| {
                 if listed && entries.is_empty() {
                     // An empty folder (or a type filter that matches nothing) says so instead of
                     // showing a blank box.
@@ -500,16 +627,57 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens, services: &crate::Services
                         ui.label(egui::RichText::new("No items to show.").small().color(t.text_dim));
                     });
                 }
-                for e in entries.get(range).unwrap_or(&[]) {
-                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
+                // The entries this row shows: a list row is one entry, a grid row up to `cols`.
+                let from = range.start.saturating_mul(cols).min(entries.len());
+                let to = range.end.saturating_mul(cols).min(entries.len());
+                let shown = entries.get(from..to).unwrap_or(&[]);
+                let (row, _row_resp) = ui.allocate_exact_size(vec2(ui.available_width(), cell.height), Sense::hover());
+                for (i, e) in shown.iter().enumerate() {
+                    // A cell of its own width; a list row takes the whole width.
+                    let x0 = row.min.x + i as f32 * cell.width;
+                    let r = Rect::from_min_max(pos2(x0, row.min.y), pos2(x0 + cell.width, row.max.y));
+                    let resp = ui.interact(r, ui.scope_id().with(("builtin_file_browser_entry", &e.path)), Sense::click());
                     if b.selected.as_ref() == Some(&e.path) {
                         ui.painter().rect_filled(r, 2.0, t.selected);
                     } else if resp.hovered() {
                         ui.painter().rect_filled(r, 2.0, t.hover);
                     }
-                    let icon = Rect::from_center_size(pos2(r.min.x + 14.0, r.center().y), vec2(18.0, 18.0));
-                    icons::paint(ui.painter(), icon, if e.dir { icons::Icon::Folder } else { icons::Icon::File }, t.text_dim, false);
-                    ui.painter().with_clip_rect(r).text(pos2(r.min.x + 30.0, r.center().y), Align2::LEFT_CENTER, &e.name, font(13.0), t.text);
+                    let glyph = type_glyph(e.dir, &e.path);
+                    if cols == 1 {
+                        icons::paint(
+                            ui.painter(),
+                            Rect::from_center_size(pos2(r.min.x + 14.0, r.center().y), vec2(cell.glyph, cell.glyph)),
+                            glyph,
+                            t.text_dim,
+                            false,
+                        );
+                        ui.painter().with_clip_rect(r).text(
+                            pos2(r.min.x + 30.0, r.center().y),
+                            Align2::LEFT_CENTER,
+                            &e.name,
+                            font(cell.label),
+                            t.text,
+                        );
+                    } else {
+                        // The glyph above, its name below, both centred in the cell: the icon is the
+                        // entry's type, never a picture of the file's contents.
+                        let name_band = cell.label + 8.0;
+                        let gy = row.min.y + cell.height - name_band - cell.glyph * 0.5;
+                        icons::paint(
+                            ui.painter(),
+                            Rect::from_center_size(pos2(r.center().x, gy), vec2(cell.glyph, cell.glyph)),
+                            glyph,
+                            t.text_dim,
+                            false,
+                        );
+                        ui.painter().with_clip_rect(r).text(
+                            pos2(r.center().x, r.max.y - 2.0),
+                            Align2::CENTER_BOTTOM,
+                            &e.name,
+                            font(cell.label),
+                            t.text,
+                        );
+                    }
                     if resp.double_clicked() {
                         if e.dir {
                             go = Some(e.path.clone());
@@ -548,10 +716,11 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens, services: &crate::Services
     }
     ui.add_space(6.0);
     let mut refilter = false;
+    let mut view_changed = false;
     ui.horizontal(|ui| {
         ui.label("File name");
-        // The name field takes what the label and the type list leave.
-        let width = (ui.available_width() - 170.0).max(120.0);
+        // The name field takes what the label and the two dropdowns leave.
+        let width = (ui.available_width() - 320.0).max(120.0);
         let r = ui.add(egui::TextEdit::singleline(&mut b.name).desired_width(width));
         if b.focus_name {
             r.request_focus();
@@ -569,9 +738,21 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens, services: &crate::Services
             }
         });
         refilter = b.filter != before;
+        // PowerPoint's View dropdown: the same entries, as a list or as icons of three sizes. The
+        // choice is remembered in `ui.json`, so the next dialog opens the way this one was browsed.
+        let before_view = b.view;
+        craft_ui::ComboBox::from_id_salt("builtin_file_browser_view").selected_text(b.view.label()).width(120.0).show_ui(ui, |ui| {
+            for v in PickerView::ALL {
+                ui.selectable_value(&mut b.view, v, v.label());
+            }
+        });
+        view_changed = b.view != before_view;
     });
     if refilter {
         b.navigate(b.dir.clone());
+    }
+    if view_changed {
+        b.view_dirty = true;
     }
     ui.add_space(8.0);
     let mut cancel = false;

@@ -9,8 +9,9 @@ use std::sync::mpsc::channel;
 
 use serde_json::json;
 
-use super::file_browser::{BrowserRequest, Entry, FileBrowser, Note, Roots, Step, cancel, close, list_dir, up_from};
-use crate::{Services, SlideApp};
+use super::file_browser::{BrowserRequest, Entry, FileBrowser, Note, PickerView, Roots, Step, cancel, close, list_dir, type_glyph, up_from};
+use super::icons;
+use crate::{Services, SlideApp, UiState};
 use deckcraft_engine::Session;
 
 fn scratch(tag: &str) -> PathBuf {
@@ -285,4 +286,98 @@ fn selecting_an_entry_names_a_file() {
     b.select(&Entry { name: "slides".into(), path: dir.join("slides"), dir: true });
     assert_eq!(b.name, "talk.deckcraft", "a folder keeps the typed name");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The View dropdown's four modes round-trip through the names `ui.json` keeps; a name that isn't
+/// one of them is the list view.
+#[test]
+fn the_view_modes_round_trip_and_an_unknown_name_is_the_list() {
+    assert_eq!(PickerView::ALL, [PickerView::List, PickerView::Small, PickerView::Medium, PickerView::Large]);
+    assert_eq!(PickerView::List.label(), "List");
+    assert_eq!(PickerView::Large.label(), "Large icons");
+    for v in PickerView::ALL {
+        assert_eq!(PickerView::from_name(v.name()), v, "{} must persist as {}", v.label(), v.name());
+    }
+    assert_eq!(PickerView::from_name(""), PickerView::List);
+    assert_eq!(PickerView::from_name("icons-4000"), PickerView::List);
+}
+
+/// A grid fits as many columns as its cells allow; a list is one column of rows; a width that
+/// isn't usable is one column, never zero. Rows follow the columns.
+#[test]
+fn the_grid_columns_and_rows_fit_the_width() {
+    let dialog = 620.0;
+    assert_eq!(PickerView::List.cell(dialog).cols, 1, "a list is one column of rows");
+    assert_eq!(PickerView::Small.cell(dialog).cols, 5);
+    assert_eq!(PickerView::Medium.cell(dialog).cols, 4);
+    assert_eq!(PickerView::Large.cell(dialog).cols, 3);
+    assert_eq!(PickerView::Medium.cell(dialog).width, dialog / 4.0, "the columns split the width evenly");
+    assert_eq!(PickerView::Medium.rows(10, dialog), 3, "10 entries in 4 columns is 3 rows");
+    assert_eq!(PickerView::Medium.rows(0, dialog), 0, "an empty folder is no rows");
+    for v in PickerView::ALL {
+        assert_eq!(v.cell(0.0).cols, 1, "no width means one column");
+        assert_eq!(v.cell(10.0).cols, 1, "a width narrower than one cell still shows a column");
+        assert_eq!(v.cell(f32::NAN).cols, 1, "a damaged layout does not divide by zero or ask for a million columns");
+        assert_eq!(v.rows(5, f32::NAN), 5, "and the entries still get rows");
+        assert!(v.cell(dialog).height > 0.0 && v.cell(dialog).glyph > 0.0, "a cell is a real box");
+    }
+    assert!(PickerView::Large.cell(dialog).glyph > PickerView::Small.cell(dialog).glyph, "Large draws a bigger glyph");
+    assert!(PickerView::Small.cell(dialog).height < PickerView::Large.cell(dialog).height, "and a shorter row");
+}
+
+/// The icon is the entry's type, drawn from DeckCraft's own icons — never a picture of the file.
+#[test]
+fn the_glyph_names_each_entries_type_any_case() {
+    assert_eq!(type_glyph(true, Path::new("slides")), icons::Icon::Folder, "a folder is a folder");
+    assert_eq!(type_glyph(false, Path::new("talk.deckcraft")), icons::Icon::Slide);
+    assert_eq!(type_glyph(false, Path::new("talk.PPTX")), icons::Icon::Slide, "any case");
+    assert_eq!(type_glyph(false, Path::new("outline.txt")), icons::Icon::Slide, "an outline a presentation is made from");
+    assert_eq!(type_glyph(false, Path::new("photo.PNG")), icons::Icon::Image);
+    assert_eq!(type_glyph(false, Path::new("clip.mp4")), icons::Icon::Video);
+    assert_eq!(type_glyph(false, Path::new("voice.MP3")), icons::Icon::Audio);
+    assert_eq!(type_glyph(false, Path::new("corporate.thmx")), icons::Icon::Themes);
+    assert_eq!(type_glyph(false, Path::new("face.ttf")), icons::Icon::Fonts);
+    assert_eq!(type_glyph(false, Path::new("data.csv")), icons::Icon::Table);
+    assert_eq!(type_glyph(false, Path::new("notes")), icons::Icon::File, "no extension");
+    assert_eq!(type_glyph(false, Path::new("thing.xyz")), icons::Icon::File, "an unknown type");
+}
+
+/// A grid lists the same entries as a list, in fewer rows, and the view only counts as chosen
+/// when the person picks it (so the remembered view is not overwritten by an opening frame).
+#[test]
+fn a_grid_lists_the_same_entries_in_fewer_rows() {
+    let dir = scratch("view");
+    for f in ["a.deckcraft", "b.deckcraft", "c.deckcraft", "d.deckcraft", "e.deckcraft"] {
+        std::fs::write(dir.join(f), b"x").unwrap();
+    }
+    let (send, _rx) = channel();
+    let mut b = FileBrowser::new(open_request(), dir.clone(), None, send);
+    assert_eq!(b.view, PickerView::List, "a browser opens in the list view until told otherwise");
+    assert!(!b.view_dirty);
+    let n = b.listing.as_ref().unwrap().entries.len();
+    assert_eq!(n, 5);
+    assert_eq!(b.view.rows(n, 620.0), 5, "the list shows one row per entry");
+    b.view = PickerView::Medium;
+    assert_eq!(b.view.rows(n, 620.0), 2, "the same entries in four columns is two rows");
+    assert!(!b.view_dirty, "only the person's choice marks the view as chosen");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The view the browser was browsed in is the view the next one opens in, in `ui.json` as
+/// `pickerView`; a damaged value is bounded back to `list`.
+#[test]
+fn the_ui_state_remembers_the_picker_view() {
+    let mut ui = UiState::default();
+    assert_eq!(ui.picker_view, "list", "the default is the list view");
+    ui.picker_view = "large".into();
+    assert_eq!(ui.clone().sanitized().picker_view, "large");
+    ui.picker_view = "icons-4000".into();
+    assert_eq!(ui.clone().sanitized().picker_view, "list");
+    ui.picker_view = "x".repeat(4000);
+    ui = ui.sanitized();
+    assert_eq!(ui.picker_view, "list", "a damaged field is bounded, not trusted");
+    let json = serde_json::to_value(&ui).unwrap();
+    assert_eq!(json["pickerView"], "list", "persisted as pickerView");
+    let read: UiState = serde_json::from_str("{}").unwrap();
+    assert_eq!(read.picker_view, "list", "a file without it opens in the list view");
 }

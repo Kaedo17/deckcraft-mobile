@@ -1,4 +1,4 @@
-use super::{Deserialize, LayoutId, MasterId, Serialize, SlideId, Target, qat, theme};
+use super::{Deserialize, LayoutId, MasterId, Serialize, SlideId, Target, file_browser, qat, theme};
 
 /// The operation the user asked for. Kept with the request so a late completion does not
 /// guess a command from the file name.
@@ -89,6 +89,9 @@ pub struct UiState {
     /// The Text Pane's line drafts, for the SmartArt group they were read from.
     pub smartart_drafts: (u32, Vec<String>),
     pub grayscale: bool,
+    /// The built-in file browser's view: `list`, `small`, `medium` or `large` (PowerPoint's file
+    /// dialog View dropdown). Anything else in `ui.json` is read as `list`.
+    pub picker_view: String,
     /// Comment the Review Previous/Next buttons last landed on: `(slide, index)`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment_focus: Option<(usize, usize)>,
@@ -125,6 +128,7 @@ impl Default for UiState {
             smartart_focus: None,
             smartart_drafts: (0, vec![]),
             grayscale: false,
+            picker_view: "list".into(),
             comment_focus: None,
             qat: qat::defaults(),
         }
@@ -156,6 +160,9 @@ impl UiState {
             self.format_tab = d.format_tab;
         }
         self.pane = self.pane.filter(short);
+        // The browser's view is one of four names; any other string (a hand-edited or damaged
+        // `ui.json`) becomes `list`, which also bounds the field.
+        self.picker_view = file_browser::PickerView::from_name(&self.picker_view).name().to_string();
         self.recent.retain(|p| !p.is_empty() && p.len() <= 4096 && !p.contains('\0'));
         self.recent.dedup();
         self.recent.truncate(RECENT_MAX);
