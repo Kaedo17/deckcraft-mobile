@@ -43,7 +43,7 @@ env:
   # own range (NDK r29 stops at API 35, r30 reaches 37), so the platform and NDK below travel together.
   ANDROID_API: "36"
   ANDROID_NDK: "30.0.16248370"
-  ANDROID_BUILD_TOOLS: "36.0.2"
+  ANDROID_BUILD_TOOLS: "36.0.0"
 
 jobs:
   apk:
@@ -64,7 +64,9 @@ jobs:
             version="$base-android.1"
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
-          echo "APK_NAME=deckcraft-v$version-android-arm64.apk" >> "$GITHUB_ENV"
+          # The asset is named from Cargo.toml's version, not the release version, so a tag
+          # suffix like -android.1 does not repeat inside the file name.
+          echo "APK_NAME=deckcraft-v$base-android-arm64.apk" >> "$GITHUB_ENV"
 
       - name: Check out craft-fonts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -109,7 +111,10 @@ jobs:
             echo "::error::no sdkmanager under $sdk (cmdline-tools/latest/bin)"
             exit 1
           fi
-          yes | "$manager" --sdk_root="$sdk" --licenses > /dev/null
+          # Accept the licences so the installs below are not blocked. `yes` exits on a broken
+          # pipe once sdkmanager stops reading, which is not a failure; the install step is the
+          # thing that must pass.
+          yes | "$manager" --sdk_root="$sdk" --licenses > /dev/null 2>&1 || true
           "$manager" --sdk_root="$sdk" --install \
             "platforms;android-$ANDROID_API" "build-tools;$ANDROID_BUILD_TOOLS" "ndk;$ANDROID_NDK" > /dev/null
           echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
@@ -213,7 +218,7 @@ jobs:
           Finger pan, a still hold opening the canvas menu, hold-then-drag selection, drag-to-scroll in panels, Ctrl+S/Ctrl+Z, mouse hover/wheel/right-click and audio: \`adb input\` reports as a mouse, and injecting on the device's own touchscreen delivers nothing to the app.
 
           ## Install
-          Android 10 (API 28) or newer, arm64 only: \`adb install deckcraft-v$VERSION-android-arm64.apk\`, or sideload the APK. Uninstall a debug build first — a different signing key cannot upgrade it.
+          Android 10 (API 28) or newer, arm64 only: \`adb install $APK_NAME\`, or sideload the APK. Uninstall a debug build first — a different signing key cannot upgrade it.
           EOF
           gh release edit "$tag" --title "DeckCraft for Android (arm64) — $VERSION" --notes-file notes.md
           # Publishing here because pushing the tag is the release decision; nothing runs on main.
